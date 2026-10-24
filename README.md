@@ -164,7 +164,9 @@ Private reasoning and hidden internal tool calls are not exported: only content 
 
 ## Version
 
-Current version: **0.6.58**
+Current version: **0.6.59**
+
+Version **0.6.59** converts ChatGPT's JSX-style source links and citations into usable links in Markdown, HTML, and JEX exports. Inline SVG diagrams are preserved in HTML with a restricted element and attribute set; pure Markdown points readers to the HTML export for those diagrams.
 
 This version clarifies that pinned conversations and projects are included in the optional post-export deletion behavior; pinning does not protect them. It also clarifies the deletion sequence and warning. Visible project conversation links are scanned directly from the sidebar, including pinned projects.
 

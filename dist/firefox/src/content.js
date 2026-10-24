@@ -927,18 +927,42 @@
       for(const it of data.items||data.gizmos||data.projects||[]){const g=(it&&it.gizmo&&it.gizmo.gizmo)||(it&&it.gizmo)||it;if(!g)continue;const id=g.id||g.gizmo_id||g.project_id;if(id&&!seen.has(id)){seen.add(id);projects.push({...g,_cgxSidebarItem:it});}}
       cursor=data.cursor||data.next_cursor||null; if(cursor)await jobSleep(DELAY_MS);
     } while(cursor);
-    // Pinned projects can be omitted from the Projects sidebar API even while
-    // ChatGPT renders them in its navigation. Merge those visible local
-    // projects in so their conversations still reach the normal project scan,
-    // export, and per-conversation deletion flows.
+    // Projects visible in the sidebar can be omitted from its API. Merge their
+    // rendered IDs so their conversations reach the normal project scan,
+    // export, and per-conversation deletion flows. Pinned projects live in a
+    // separate sidebar section and are handled independently below.
     try{
-      for(const container of document.querySelectorAll('[data-sidebar-project-container][data-sidebar-project-kind="local"]')){
-        const row=container.querySelector('[data-sidebar-project-row][data-sidebar-project-id]')||container.querySelector('[data-sidebar-project-id]');
-        const id=row&&row.getAttribute('data-sidebar-project-id');
-        if(!id||seen.has(id))continue;
-        const name=(row.getAttribute('data-sidebar-project-label')||row.innerText||'').trim();
-        seen.add(id);
-        projects.push({id,name:name||'Project',_cgxSidebarItem:{}});
+      const addVisibleProject=(id,row,pinned=false)=>{
+        if(!id||seen.has(id))return;
+        const name=((row&&row.getAttribute('data-app-action-sidebar-project-label'))||
+          (row&&row.getAttribute('data-sidebar-project-label'))||
+          (row&&row.getAttribute('data-sidebar-project-name'))||
+          (row&&row.innerText)||'').trim().split(/\r?\n/).map(s=>s.trim()).filter(Boolean)[0]||'Project';
+        seen.add(id);projects.push({id,name,_cgxPinnedProject:pinned,_cgxSidebarItem:{}});
+      };
+      // ChatGPT's current project nodes expose kind + container-id, but not a
+      // data-sidebar-project-container attribute (pinned or otherwise).
+      for(const container of document.querySelectorAll('[data-sidebar-project-kind="local"]')){
+        const row=container.querySelector('[data-app-action-sidebar-project-row][data-app-action-sidebar-project-id]')||container.querySelector('[data-sidebar-project-row][data-sidebar-project-id]')||container.querySelector('[data-app-action-sidebar-project-id], [data-sidebar-project-id]');
+        const id=row&&(row.getAttribute('data-app-action-sidebar-project-id')||row.getAttribute('data-sidebar-project-id'));
+        addVisibleProject(id,row,!!container.closest('[data-sidebar-project-container-id="pinned"]'));
+      }
+      // The pinned section has its own container (data-sidebar-project-container-id="pinned")
+      // and may render project rows without the "local" kind marker used above.
+      for(const section of document.querySelectorAll('[data-sidebar-project-container-id="pinned"]')){
+        for(const row of section.querySelectorAll('[data-app-action-sidebar-project-id], [data-sidebar-project-id]')){
+          addVisibleProject(row.getAttribute('data-app-action-sidebar-project-id')||row.getAttribute('data-sidebar-project-id'),row,true);
+        }
+        for(const container of section.querySelectorAll('[data-sidebar-project-container-id^="project:"]')){
+          const id=container.getAttribute('data-sidebar-project-container-id').slice('project:'.length);
+          const row=container.querySelector('[data-sidebar-project-row]')||container;
+          addVisibleProject(id,row,true);
+        }
+        // Fallback for pinned project links if the row data attributes change.
+        for(const link of section.querySelectorAll('a[href*="/g/g-p-"]')){
+          const match=(link.getAttribute('href')||'').match(/\/g\/(g-p-[^/?#]+)/);
+          if(match)addVisibleProject(match[1],link,true);
+        }
       }
     }catch(_){}
     if(!projects.length && !capabilityState.projects_list) setCapability('projects_list','unavailable','No Projects endpoint available or no Project exists in this workspace.');
@@ -954,6 +978,21 @@
       const r=await tryApiGet(`/backend-api/gizmos/${encodeURIComponent(projectId)}/conversations?cursor=${encodeURIComponent(cursor)}`,accountId,'project_conversations');
       if(!r.ok) break; fetched=true; const data=r.data; const batch=data.items||data.conversations||[];out.push(...batch);if(batch.length)onCount(out.length,batch); cursor=data.cursor||data.next_cursor||null;if(cursor)await jobSleep(DELAY_MS);
     }
+    // A project visible in the Pinned sidebar can show its conversation links
+    // even when the project conversations endpoint omits them. The URL carries
+    // both IDs: /g/{projectId}/c/{conversationId}. Supplement, never replace,
+    // the richer API records with these lightweight sidebar entries.
+    try{
+      const known=new Set(out.map(x=>x&&(x.conversation_id||x.id)).filter(Boolean));
+      for(const link of document.querySelectorAll('a[href*="/g/"]')){
+        const href=link.getAttribute('href')||'';
+        const match=href.match(/^\/g\/([^/?#]+)\/c\/([^/?#]+)/);
+        if(!match||decodeURIComponent(match[1])!==String(projectId))continue;
+        const id=decodeURIComponent(match[2]);if(!id||known.has(id))continue;
+        known.add(id);
+        out.push({id,conversation_id:id,title:(link.getAttribute('aria-label')||link.innerText||'Project conversation').trim()});
+      }
+    }catch(_){}
     const seen=new Map(); for(const x of out){const id=x&& (x.conversation_id||x.id);if(id)seen.set(id,x);} 
     if(!fetched && preview.length) setCapability('project_conversations','fallback','Using previews available in the Projects sidebar.');
     const conversations=[...seen.values()];
@@ -984,6 +1023,48 @@
     }
   }
 
+  // The pinned-items sidebar is a separate ChatGPT surface: standalone pinned
+  // chats can be absent from /backend-api/conversations. Keep these distinct
+  // from project conversations (a pinned project is still scanned as a project).
+  function listPinnedConversations(accountId){
+    const out=[],seen=new Set();
+    try{
+      for(const row of document.querySelectorAll('[data-pinned-content-tab-drop-key^="chatgpt:conversation:"]')){
+        const key=row.getAttribute('data-pinned-content-tab-drop-key')||'';
+        const id=key.slice('chatgpt:conversation:'.length).trim();
+        if(!id||seen.has(id))continue;
+        seen.add(id);
+        const label=row.querySelector('[data-sidebar-item-label], [data-sidebar-item-title]');
+        const title=((label&&label.textContent)||row.innerText||'').split(/\r?\n/).map(s=>s.trim()).filter(s=>s&&!/^dés?épingler|^unpin|^remove from pins/i.test(s))[0]||'Pinned conversation';
+        out.push({conversation_id:id,title,_cgxPinned:true,_cgxArchived:false,_cgxAccountId:accountId});
+      }
+    }catch(_){}
+    return out;
+  }
+
+  // Project conversation links are independently available in the rendered
+  // sidebar. Collect them as a last-mile fallback even if project enumeration
+  // or the per-project API endpoint fails to return the pinned project.
+  function listVisibleProjectConversations(accountId){
+    const out=[],seen=new Set();
+    try{
+      for(const link of document.querySelectorAll('a[href*="/g/"][href*="/c/"]')){
+        const href=link.getAttribute('href')||'';
+        const match=href.match(/^\/g\/([^/?#]+)\/c\/([^/?#]+)/);
+        if(!match)continue;
+        const projectId=decodeURIComponent(match[1]),id=decodeURIComponent(match[2]);
+        if(!projectId.startsWith('g-p-')||!id||seen.has(id))continue;
+        seen.add(id);
+        const container=link.closest('[data-sidebar-project-kind="local"]');
+        const projectRow=container&&container.querySelector('[data-app-action-sidebar-project-id]');
+        const projectTitle=projectRow&&(projectRow.getAttribute('data-app-action-sidebar-project-label')||projectRow.innerText);
+        const title=(link.getAttribute('aria-label')||link.innerText||'Project conversation').trim();
+        out.push({id,conversation_id:id,title,_cgxProjectId:projectId,_cgxProjectTitle:(projectTitle||'').trim()||'Project',_cgxAccountId:accountId});
+      }
+    }catch(_){}
+    return out;
+  }
+
   function timeMs(v){if(v==null)return 0;if(typeof v==='number')return v>1e12?v:v*1000;const t=Date.parse(v);return Number.isFinite(t)?t:0;}
 
   // Conversation ids are global, so one conversation can only appear once.
@@ -995,7 +1076,7 @@
     for(const x of found){
       const id=x.conversation_id||x.id;if(!id)continue;
       const prev=byId.get(id);
-      byId.set(id,prev?{...x,...prev,_cgxShared:!!(prev._cgxShared||x._cgxShared),_cgxShareId:prev._cgxShareId||x._cgxShareId,_cgxProjectId:prev._cgxProjectId||x._cgxProjectId,_cgxProjectTitle:prev._cgxProjectTitle||x._cgxProjectTitle,_cgxArchived:!!(prev._cgxArchived||x._cgxArchived)}:x);
+      byId.set(id,prev?{...x,...prev,_cgxShared:!!(prev._cgxShared||x._cgxShared),_cgxShareId:prev._cgxShareId||x._cgxShareId,_cgxProjectId:prev._cgxProjectId||x._cgxProjectId,_cgxProjectTitle:prev._cgxProjectTitle||x._cgxProjectTitle,_cgxArchived:!!(prev._cgxArchived||x._cgxArchived),_cgxPinned:!!(prev._cgxPinned||x._cgxPinned)}:x);
     }
     return[...byId.values()];
   }
@@ -1039,10 +1120,14 @@
         const accountId=accounts[accountNo], accountLabel=accounts.length>1?`workspace ${accountNo+1}/${accounts.length}: `:'';
         stage=`${accountLabel}scanning active conversations`;announce();
         const active=await listRegular(accountId,false,(count,batch)=>{announce(found.length+count);if(batch)onItems(batch.map(x=>({...x,_cgxArchived:false,_cgxAccountId:accountId})));});
+        const pinned=listPinnedConversations(accountId);
+        if(pinned.length){found.push(...pinned);onItems(pinned);announce();}
         if(isAccountAlias(scannedSets,active)){aliases.add(accountId);setCapability('workspace_alias','detected',`Account ${accountNo+1} is an alias of an already scanned workspace; skipped.`);continue;}
         for(const x of active)found.push({...x,_cgxArchived:false,_cgxAccountId:accountId});announce();
         stage=`${accountLabel}scanning archived conversations`;announce();
         const archived=await listRegular(accountId,true,(count,batch)=>{announce(found.length+count);if(batch)onItems(batch.map(x=>({...x,_cgxArchived:true,_cgxAccountId:accountId})));}); for(const x of archived)found.push({...x,_cgxArchived:true,_cgxAccountId:accountId});announce();
+        const visibleProjectConversations=listVisibleProjectConversations(accountId);
+        if(visibleProjectConversations.length){found.push(...visibleProjectConversations);onItems(visibleProjectConversations);announce();}
         stage=`${accountLabel}finding projects`;announce();
         try{
           const projects=await listProjects(accountId);
@@ -1219,7 +1304,7 @@
   function managerWasDeleted(item){const id=managerConversationId(item);return managerDeletedDuringScan.has(`key:${managerItemKey(item)}`)||(id!=null&&managerDeletedDuringScan.has(`id:${id}`));}
   function managerSummary(item){
     const accountId=item._cgxAccountId||null;
-    return{key:managerItemKey(item),conversationId:managerConversationId(item),title:item.title||'Untitled',updatedAt:timeMs(item.update_time||item.create_time),archived:!!item._cgxArchived,shared:!!item._cgxShared,project:item._cgxProjectTitle||'',accountId,accountLabel:accountId?`Account · ${String(accountId).slice(0,8)}`:'Current account'};
+    return{key:managerItemKey(item),conversationId:managerConversationId(item),title:item.title||'Untitled',updatedAt:timeMs(item.update_time||item.create_time),archived:!!item._cgxArchived,shared:!!item._cgxShared,project:item._cgxProjectTitle||'',pinned:!!item._cgxPinned,accountId,accountLabel:accountId?`Account · ${String(accountId).slice(0,8)}`:'Current account'};
   }
   function publishPickerItems(rawItems){
     if(!rawItems||!rawItems.length)return;
@@ -1230,7 +1315,7 @@
     for(const item of rawItems){
       const id=item.conversation_id||item.id;if(!id||managerWasDeleted(item))continue;
       const prev=byId.get(id);
-      const merged=prev?{...item,...prev,_cgxArchived:!!(prev._cgxArchived||item._cgxArchived),_cgxShared:!!(prev._cgxShared||item._cgxShared),_cgxShareId:prev._cgxShareId||item._cgxShareId,_cgxProjectId:prev._cgxProjectId||item._cgxProjectId,_cgxProjectTitle:prev._cgxProjectTitle||item._cgxProjectTitle}:item;
+      const merged=prev?{...item,...prev,_cgxArchived:!!(prev._cgxArchived||item._cgxArchived),_cgxShared:!!(prev._cgxShared||item._cgxShared),_cgxPinned:!!(prev._cgxPinned||item._cgxPinned),_cgxShareId:prev._cgxShareId||item._cgxShareId,_cgxProjectId:prev._cgxProjectId||item._cgxProjectId,_cgxProjectTitle:prev._cgxProjectTitle||item._cgxProjectTitle}:item;
       byId.set(id,merged);published.push(merged);
     }
     managerListCache={...(managerListCache||{}),complete:false,items:[...byId.values()]};

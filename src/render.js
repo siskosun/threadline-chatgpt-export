@@ -83,6 +83,26 @@
     return out.replace(/\(\s*\)/g, "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n");
   }
 
+  // Preserve simple inline diagrams in HTML while allowing only basic SVG
+  // drawing elements and presentation/geometry attributes from response text.
+  function safeInlineSvg(svg) {
+    const tags = new Set(["svg", "g", "rect", "circle", "ellipse", "line", "polyline", "polygon", "path", "text", "tspan"]);
+    const attrs = new Set(["xmlns", "viewBox", "width", "height", "x", "y", "x1", "x2", "y1", "y2", "cx", "cy", "r", "rx", "ry", "d", "points", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "opacity", "transform", "font-size", "text-anchor"]);
+    return String(svg || "").replace(/<\/?([\w:-]+)\b([^>]*)>/g, (whole, rawTag, rawAttrs) => {
+      const tag = rawTag.toLowerCase();
+      if (!tags.has(tag)) return "";
+      if (whole.startsWith("</")) return `</${tag}>`;
+      const safeAttrs = [];
+      for (const match of rawAttrs.matchAll(/([\w:-]+)\s*=\s*(["'])(.*?)\2/gs)) {
+        const name = match[1];
+        const value = match[3];
+        if (!attrs.has(name) || /[<>]|javascript:|https?:/i.test(value)) continue;
+        safeAttrs.push(`${name}="${esc(value)}"`);
+      }
+      return `<${tag}${safeAttrs.length ? ` ${safeAttrs.join(" ")}` : ""}${/\/\s*>$/.test(whole) ? " />" : ">"}`;
+    });
+  }
+
   // ---------- Parcours de l’arbre ----------
 
   // Messages are stored as a tree (regenerations, edits): walk back from
@@ -291,6 +311,29 @@
     return uniqueExact.length ? uniqueExact : collect(refs || []);
   }
 
+  // Newer ChatGPT messages can contain JSX-like source components instead of
+  // the older <Cite refs={[...]} /> form and metadata matched-text markers.
+  // Convert the explicit URL components directly, and resolve citation IDs
+  // against the same references used by the legacy renderer.
+  function preprocessSourceComponents(text, refs = [], extraData = null) {
+    return String(text || "")
+      .replace(/<Link\b([^>]*)\/?\s*>/gi, (_match, attrs) => {
+        const read = (name) => attrs.match(new RegExp(`\\b${name}\\s*=\\s*["']([^"']*)["']`, "i"))?.[1] || "";
+        const url = read("url") || read("href");
+        if (!/^https?:\/\//i.test(url) || !isArchiveSafeUrl(url)) return mdLabel(read("title") || read("label"));
+        const title = read("title") || read("label") || hostOf(url) || url;
+        return `[${mdLabel(title)}](${mdUrl(cleanUrl(url))})`;
+      })
+      .replace(/<Cite\b([^>]*)\/?\s*>/gi, (_match, attrs) => {
+        const rawIds = attrs.match(/\brefs\s*=\s*\{(\[[\s\S]*?\])\}/i)?.[1];
+        const refId = attrs.match(/\bref\s*=\s*["']([^"']*)["']/i)?.[1];
+        let ids = refId ? [refId] : [];
+        if (rawIds) { try { ids = JSON.parse(rawIds); } catch (_) {} }
+        const links = resolveCitationLinks(ids, refs, extraData);
+        return links.map((link) => `[${mdLabel(link.title || link.label || hostOf(link.url))}](${mdUrl(cleanUrl(link.url))})`).join(", ");
+      });
+  }
+
   function dedentRichComponentMarkup(text) {
     const lines = String(text || "").split("\n");
     const componentTag = /<\/?(box|row|text|title|divider|caption|list|list-item)\b[^>]*>/gi;
@@ -311,7 +354,7 @@
     if (extraData && extraData.jexRichHtml) {
       return preprocessJexRichComponents(text, refs, extraData, ctx);
     }
-    let out = dedentRichComponentMarkup(text);
+    let out = dedentRichComponentMarkup(preprocessSourceComponents(text, refs, extraData));
     // ChatGPT sometimes serializes Markdown table row breaks as HTML <br>
     // tags. Markdown parsers require actual newlines between table rows.
     out = out.replace(/<br\s*\/?>[ \t]*(?=\|)/gi, "\n");
@@ -379,7 +422,7 @@
   // HTML. Joplin renders HTML inside Markdown notes, and JEX resource paths
   // are rewritten later by content.js just like Markdown image paths.
   function preprocessJexRichComponents(text, refs = [], extraData = null, ctx = null) {
-    let source = dedentRichComponentMarkup(text);
+    let source = dedentRichComponentMarkup(preprocessSourceComponents(text, refs, extraData));
     const generatedHtml = new Map();
     const keepHtml = (value) => {
       const token = `CGXJEXHTML${generatedHtml.size}Z`;
@@ -524,6 +567,11 @@
       tokens.set(t, html);
       return block ? `\n\n${t}\n\n` : t;
     };
+
+    // Markdown stays portable and tag-free; the paired HTML export keeps a
+    // sanitized vector diagram instead of showing its SVG source as text.
+    src = src.replace(/<svg\b[\s\S]*?<\/svg\s*>/gi, (svg) => token(safeInlineSvg(svg), true));
+    md = md.replace(/<svg\b[\s\S]*?<\/svg\s*>/gi, "\n\n[Diagram available in the HTML export.]\n\n");
 
     const sorted = refs
       .filter((r) => r && typeof r.matched_text === "string" && PUA.test(r.matched_text))
