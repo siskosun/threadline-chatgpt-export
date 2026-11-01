@@ -9,14 +9,25 @@ import io
 import json
 import tempfile
 import traceback
-import zipfile
 from pathlib import Path
-from urllib.parse import urlparse,parse_qs
+from urllib.parse import urlparse, parse_qs
+import zipfile
 from playwright.async_api import async_playwright
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'test-results';OUT.mkdir(exist_ok=True)
 REPORT={'scope':'synthetic_chromium_mv3_not_real_chatgpt','cases':[],'errors':[]}
 CID='conversation_fixture_20261101';SOURCE='https://chatgpt.com/c/'+CID
+
+async def wait_async(page, expression, arg=None, timeout=30000):
+    """Poll the RESOLVED result. A Promise object itself must not satisfy a wait."""
+    loop=asyncio.get_running_loop(); deadline=loop.time()+timeout/1000
+    while True:
+        result=await page.evaluate(expression,arg)
+        if result:
+            return result
+        if loop.time()>=deadline:
+            raise TimeoutError('Resolved asynchronous predicate did not become true: '+expression)
+        await asyncio.sleep(0.1)
 
 def xlsx_fixture():
     b=io.BytesIO()
@@ -102,13 +113,19 @@ async def main():
     async with async_playwright() as pw:
       with tempfile.TemporaryDirectory(prefix='threadline-cloud-e2e-') as tmp:
         profile=Path(tmp)/'profile';ctx,extension=await launch(pw,profile)
+        workspace=None
         try:
             source=await ctx.new_page();await source.goto(SOURCE)
             workspace=await ctx.new_page();await workspace.goto('chrome-extension://'+extension+'/workspace/index.html')
             await workspace.wait_for_function('typeof TLStore!=="undefined"&&typeof TLArchive!=="undefined"')
             await workspace.wait_for_function('document.querySelector("#source").value!==""')
+            # Prove the test helper waits for a resolved false-to-true transition.
+            await workspace.evaluate('window.fixtureAsyncReady=false;setTimeout(()=>window.fixtureAsyncReady=true,180)')
+            await wait_async(workspace,'async()=>window.fixtureAsyncReady')
+            assert await workspace.evaluate('window.fixtureAsyncReady') is True
+            passed('async_database_waiter_awaits_resolved_predicate')
             await workspace.locator('#allow-media').uncheck();await workspace.locator('#capture').click()
-            await workspace.wait_for_function('async()=>{const xs=await TLStore.all("captures");return xs.length>0&&xs[0].snapshot&&["ready","partial"].includes(xs[0].state)}',timeout=90000)
+            await wait_async(workspace,'async()=>{const xs=await TLStore.all("captures");return xs.length>0&&xs[0].snapshot&&["ready","partial"].includes(xs[0].state)}',timeout=90000)
             captures=await workspace.evaluate('TLStore.all("captures")');cap=captures[0];cid=cap['id']
             assert len(cap['snapshot']['messages'])==121 and cap['snapshot']['integrity']['state']=='valid' and cap['state']=='partial',cap
             assets=await workspace.evaluate('id=>TLStore.assets(id)',cid)
@@ -156,9 +173,9 @@ async def main():
               const s=await chrome.runtime.sendMessage({type:'tl:start',tabId:tab.id,live:true});if(!s.ok)throw Error(s.code);return s.data;
             }''',CID)
             live_id=start['captureId']
-            await workspace.wait_for_function('async id=>{const c=await TLStore.get("captures",id);return c?.snapshot&&c.live&&["ready","partial"].includes(c.state)}',arg=live_id,timeout=90000)
+            await wait_async(workspace,'async id=>{const c=await TLStore.get("captures",id);return c?.snapshot&&c.live&&["ready","partial"].includes(c.state)}',arg=live_id,timeout=90000)
             mode['live']=True;await source.evaluate('document.querySelector("main").append(document.createTextNode("new generated file available"))')
-            await workspace.wait_for_function('async id=>(await TLStore.assets(id)).some(a=>a.name==="live.txt"&&a.state==="saved")',arg=live_id,timeout=45000)
+            await wait_async(workspace,'async id=>(await TLStore.assets(id)).some(a=>a.name==="live.txt"&&a.state==="saved")',arg=live_id,timeout=45000)
             await workspace.evaluate('id=>chrome.runtime.sendMessage({type:"tl:stop",captureId:id})',live_id)
             before_requests=mode['request_count'];await source.evaluate('document.querySelector("main").append(document.createTextNode("after stop"))');await asyncio.sleep(13)
             assert mode['request_count']==before_requests;mode['live']=False
@@ -178,7 +195,7 @@ async def main():
                 async with ctx.expect_page() as new_page:
                     response=await workspace.evaluate('id=>chrome.runtime.sendMessage({type:"tl:openHandoff",id})',h['id']);assert response['ok'],response
                 target=await new_page.value;await target.wait_for_load_state()
-                await workspace.wait_for_function('async id=>{const h=await TLStore.get("handoffs",id);return ["upload_confirmed","upload_unknown","injection_blocked","partial_injection"].includes(h.state)}',arg=h['id'],timeout=60000)
+                await wait_async(workspace,'async id=>{const h=await TLStore.get("handoffs",id);return ["upload_confirmed","upload_unknown","injection_blocked","partial_injection"].includes(h.state)}',arg=h['id'],timeout=60000)
                 return target,await workspace.evaluate('id=>TLStore.get("handoffs",id)',h['id'])
             target,h=await handoff();assert h['state']=='upload_confirmed',h
             received=await target.evaluate('window.received');assert len(received)==len(h['batches'][0]),received
@@ -212,9 +229,9 @@ async def main():
             passed('all_synthetic_source_requests_are_read_only',{'request_count':mode['request_count']})
         except Exception as e:
             REPORT['errors'].append({'message':str(e),'traceback':traceback.format_exc()})
-            try:
-                REPORT['debug']=await workspace.evaluate('async()=>({status:document.querySelector("#status")?.textContent,captures:await TLStore.all("captures"),handoffs:await TLStore.all("handoffs")})')
-            except Exception:pass
+            if workspace:
+                try:REPORT['debug']=await workspace.evaluate('async()=>({status:document.querySelector("#status")?.textContent,captures:await TLStore.all("captures"),handoffs:await TLStore.all("handoffs")})')
+                except Exception:pass
             for i,page in enumerate(ctx.pages):
                 try:await page.screenshot(path=str(OUT/f'failure-{i}.png'),full_page=True)
                 except Exception:pass
