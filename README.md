@@ -18,7 +18,7 @@
 
 ## 安装候选包
 
-在 [GitHub Actions](https://github.com/siskosun/threadline-chatgpt-export/actions) 中打开该分支**准确提交 SHA**的成功 `verify` 运行，下载 `threadline-candidate-<SHA>` artifact。解压外层 artifact，再解压其中 `threadline-edge-0.7.1-candidate.zip` 或 Chrome 对应包。包含 `manifest.json` 的目录就是加载目标。
+在 [GitHub Actions](https://github.com/siskosun/threadline-chatgpt-export/actions) 中打开该分支**准确提交 SHA**的成功 `verify` 运行，下载 `threadline-candidate-<SHA>` artifact。解压外层 artifact，再解压其中 `threadline-edge-0.7.2-candidate.zip` 或 Chrome 对应包。包含 `manifest.json` 的目录就是加载目标。
 
 建议使用独立 Edge 配置进行验收。在扩展管理页开启开发者模式，选择“加载解压缩的扩展”，指向上述目录。不要卸载现有研线或清除旧数据。安装包附 `BUILD_INFO.json`，可核对源提交；artifact 附 `SHA256SUMS`，可核对安装包字节。
 
