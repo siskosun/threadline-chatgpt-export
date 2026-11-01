@@ -154,6 +154,7 @@ async def main():
             assert len(assets)==9,assets
             saved=[a for a in assets if a['state']=='saved'];missing=[a for a in assets if a['state'] not in ['saved','excluded']]
             assert len(saved)==6 and len(missing)==3 and not [a for a in assets if a['state']=='excluded'],assets
+            assert 'file_tool_unknown' in mode['file_download_ids'],mode['file_download_ids']
             assert all(a['sha256'] and a['size']>0 for a in saved)
             expected={hashlib.sha256(v[2]).hexdigest() for v in FILES.values()}|{hashlib.sha256(PDF).hexdigest(),hashlib.sha256(FINAL).hexdigest()}
             assert {a['sha256'] for a in saved}==expected
