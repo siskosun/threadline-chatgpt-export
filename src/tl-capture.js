@@ -77,11 +77,12 @@
    const session=await json(run,'/api/auth/session');C.check(typeof session.accessToken==='string'&&session.accessToken,'CHATGPT_LOGIN_REQUIRED');const token=session.accessToken,account=session.account?.id||session.activeAccount?.id||session.account_id||null;
    const raw=await json(run,'/backend-api/conversation/'+encodeURIComponent(run.source.conversationId),token,account);sameSource(run);
    const model=C.normalizeConversation(raw,location.href);reconcileVisibleAttachments(model);const selectedKeys=new Set(C.selectAssetKeys(model,run.scope));
-   for(const a of model.assets)if(!selectedKeys.has(a.key)){a.state='excluded';a.reason='OUT_OF_SAVE_SCOPE';}
+   for(const a of model.assets)if(!selectedKeys.has(a.key)){const active=model.active.includes(a.nodeId),known=!!model.nodes[a.nodeId];if(!known||(active&&a.origin==='unknown')){a.state='unavailable';a.reason='SAVE_SCOPE_SOURCE_UNRESOLVED';}else{a.state='excluded';a.reason='OUT_OF_SAVE_SCOPE';}}
    const selectedAssets=model.assets.filter(a=>a.state!=='excluded'),skipped=model.assets.length-selectedAssets.length,persisted=C.persistedSnapshot(model);C.check(JSON.stringify(persisted).length<=16*1024*1024,'SNAPSHOT_MESSAGE_SIZE_LIMIT');
    const saved=new Set((await message('tl:snapshot',{snapshot:persisted},run.nonce)).savedKeys);let done=0,missing=0;
    for(const a of model.assets){
     if(a.state==='excluded')continue;sameSource(run);if(saved.has(a.key)){done++;continue;}status(run,'研线：保存文件 '+(done+missing+1)+' / '+selectedAssets.length+'。');
+    if(a.reason==='SAVE_SCOPE_SOURCE_UNRESOLVED'){await message('tl:assetFail',{key:a.key,code:'SAVE_SCOPE_SOURCE_UNRESOLVED'},run.nonce);missing++;continue;}
     try{await download(run,a,token,account);done++;}catch(e){const reason=code(e);await message('tl:assetFail',{key:a.key,code:reason},run.nonce);missing++;if(reason==='LOCAL_STORAGE_FULL')throw e;}
    }
    await message('tl:finish',{},run.nonce);const noGenerated=run.scope==='last_generated'&&selectedAssets.length===0;status(run.live?run:null,'研线：已保存 '+done+' 个文件；'+missing+' 个未取得；'+skipped+' 个按范围跳过。'+(noGenerated?'当前分支未识别到助手生成文件，只保存了对话正文。':run.live?'实时缓存已开启。':'请在本地档案中核对完整性。'));
