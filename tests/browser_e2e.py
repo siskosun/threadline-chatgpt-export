@@ -243,6 +243,7 @@ async def main():
             passed('unrecognized_upload_status_returns_control_without_retry_or_send')
             await workspace.get_by_role('button',name='我的档案').click()
             await workspace.locator('.archive-button').filter(has_text=cap['snapshot']['title']).first.click()
+            await workspace.get_by_role('button',name='继续这段对话').wait_for(state='visible',timeout=5000)
             assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
             assert await workspace.get_by_role('button',name='继续这段对话').is_visible()
             for width in [320,360,1280]:
