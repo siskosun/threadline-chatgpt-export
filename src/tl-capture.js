@@ -76,8 +76,8 @@
    sameSource(run);status(run,run.scope==='last_generated'?'研线：正在查找当前分支最后生成的文件。':'研线：正在读取本对话和可识别文件。');
    const session=await json(run,'/api/auth/session');C.check(typeof session.accessToken==='string'&&session.accessToken,'CHATGPT_LOGIN_REQUIRED');const token=session.accessToken,account=session.account?.id||session.activeAccount?.id||session.account_id||null;
    const raw=await json(run,'/backend-api/conversation/'+encodeURIComponent(run.source.conversationId),token,account);sameSource(run);
-   const model=C.normalizeConversation(raw,location.href);reconcileVisibleAttachments(model);const selectedKeys=new Set(C.selectAssetKeys(model,run.scope));
-   for(const a of model.assets)if(!selectedKeys.has(a.key)){const active=model.active.includes(a.nodeId),known=!!model.nodes[a.nodeId];if(!known||(active&&a.origin==='unknown')){a.state='unavailable';a.reason='SAVE_SCOPE_SOURCE_UNRESOLVED';}else{a.state='excluded';a.reason='OUT_OF_SAVE_SCOPE';}}
+   const model=C.normalizeConversation(raw,location.href);reconcileVisibleAttachments(model);const selectedKeys=new Set(C.selectAssetKeys(model,run.scope)),scopeAmbiguous=run.scope==='last_generated'&&C.lastGeneratedScopeAmbiguous(model);
+   for(const a of model.assets)if(!selectedKeys.has(a.key)){const active=model.active.includes(a.nodeId),known=!!model.nodes[a.nodeId],generated=a.origin==='assistant_generated'||(!a.origin&&a.kind==='generated');if(!known||(active&&(a.origin==='unknown'||(scopeAmbiguous&&generated)))){a.state='unavailable';a.reason='SAVE_SCOPE_SOURCE_UNRESOLVED';}else{a.state='excluded';a.reason='OUT_OF_SAVE_SCOPE';}}
    const selectedAssets=model.assets.filter(a=>a.state!=='excluded'),skipped=model.assets.length-selectedAssets.length,persisted=C.persistedSnapshot(model);C.check(JSON.stringify(persisted).length<=16*1024*1024,'SNAPSHOT_MESSAGE_SIZE_LIMIT');
    const saved=new Set((await message('tl:snapshot',{snapshot:persisted},run.nonce)).savedKeys);let done=0,missing=0;
    for(const a of model.assets){
