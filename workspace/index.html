@@ -17,6 +17,12 @@
     <div class="task-card">
       <label for="source">选择要保存的对话</label>
       <div class="source-row"><select id="source"><option value="">正在查找已打开的 ChatGPT 对话</option></select><button id="refresh-source" type="button" class="quiet">刷新</button></div>
+      <label for="asset-scope">文件保存范围</label>
+      <select id="asset-scope">
+        <option value="all">保存对话中的所有文件</option>
+        <option value="last_generated">仅保存最后生成的文件</option>
+      </select>
+      <p id="scope-hint" class="hint">尝试保存当前对话中可识别的用户上传文件和助手生成文件。</p>
       <button id="capture" class="primary full" type="button">保存对话</button>
       <button id="continue" class="primary full" type="button" hidden>继续这段对话</button>
       <div id="running" class="running empty">尚未开始保存。</div>
@@ -26,7 +32,7 @@
       <label class="check"><input type="checkbox" id="allow-media" checked>同时保存对话中的附件</label>
       <p class="hint">需要允许访问 OpenAI 文件域名。未能取得实际文件的附件会明确标记为缺失。</p>
       <label class="check"><input type="checkbox" id="live">实时缓存这段对话中新生成的文件</label>
-      <p class="hint">只对选中的对话生效。关闭浏览器或停止后不会自动恢复。</p>
+      <p id="live-hint" class="hint">只对选中的对话生效。关闭浏览器或停止后不会自动恢复。</p>
       <button id="persist" type="button" class="quiet">请求保留本地存储</button>
       <p id="quota" class="hint"></p>
     </details>
