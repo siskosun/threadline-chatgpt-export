@@ -219,7 +219,7 @@ async def main():
             await scope_workspace.set_viewport_size({'width':1280,'height':900});await scope_workspace.screenshot(path=str(OUT/'ux-home-last-generated-1280.png'),full_page=True)
             before_paths=len(mode['sandbox_paths']);await scope_workspace.locator('#capture').click()
             await wait_async(scope_workspace,'async()=>{const xs=await TLStore.all("captures"),c=xs.find(x=>x.saveScope==="last_generated");return c?.snapshot&&["ready","partial"].includes(c.state)}',timeout=90000)
-            scoped=await scope_workspace.evaluate('''async()=>{const c=(await TLStore.all('captures')).find(x=>x.saveScope==='last_generated'),assets=await TLStore.assets(c.id),out=await TLArchive.exportCapture(c.id),restored=await TLArchive.restore(out.blob),copy=await TLStore.get('captures',restored),copyAssets=await TLStore.assets(restored);return{capture:c,assets,manifest:out.manifest,restored:copy,restoredAssets:copyAssets};}''')
+            scoped=await scope_workspace.evaluate('''async()=>{const c=(await TLStore.all('captures')).find(x=>x.saveScope==='last_generated'),assets=await TLStore.assets(c.id),out=await TLArchive.exportCapture(c.id),restored=await TLArchive.restore(out.blob),copy=await TLStore.get('captures',restored),copyAssets=await TLStore.assets(restored),official=await TLArchive.buildZip([{name:'final.txt',blob:new Blob(['last-generated-file-proof-271828'],{type:'text/plain'})}]),comparison=await TLArchive.compareOfficial(c.id,official);return{capture:c,assets,manifest:out.manifest,restored:copy,restoredAssets:copyAssets,comparison};}''')
             scoped_saved=[a for a in scoped['assets'] if a['state']=='saved'];scoped_excluded=[a for a in scoped['assets'] if a['state']=='excluded'];scoped_missing=[a for a in scoped['assets'] if a['state'] not in ['saved','excluded']]
             assert scoped['capture']['state']=='ready' and len(scoped_saved)==1 and scoped_saved[0]['name']=='final.txt',scoped
             assert len(scoped_excluded)==7 and not scoped_missing,scoped
@@ -227,6 +227,7 @@ async def main():
             assert scoped['manifest']['state']=='ready' and scoped['manifest']['saveScope']=='last_generated',scoped['manifest']
             assert scoped['restored']['state']=='ready' and scoped['restored']['saveScope']=='last_generated',scoped['restored']
             assert len([a for a in scoped['restoredAssets'] if a['state']=='excluded'])==7
+            assert sum(x['result']=='bytes_match' for x in scoped['comparison']['records'])==1 and sum(x['result']=='excluded_by_save_scope' for x in scoped['comparison']['records'])==7,scoped['comparison']
             passed('last_generated_scope_saves_only_latest_active_branch_assistant_file_and_roundtrips_exclusions',{'saved':[a['name'] for a in scoped_saved],'excluded':len(scoped_excluded),'download_paths':mode['sandbox_paths'][before_paths:]})
             await scope_workspace.close()
             await ctx.close();ctx,extension=await launch(pw,profile)
