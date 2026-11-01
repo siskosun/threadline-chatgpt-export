@@ -2,7 +2,7 @@
 
 **正式范围：** 纯浏览器扩展。上游基座固定为 ChatGPT Markdown Export v0.6.59 / `13568bf75688de74a5af563b20d5ccd28f4ad532`；新聊天接续交互参考 MoveChat v1.2.1，但不采用自动发送路径。所有开发、提交、构建和自动化测试均在 GitHub 云端执行。
 
-**当前候选：** 0.7.2（文件范围选项增量）；分支 `threadline/archive-handoff-cloud`；本文件建立时基线 HEAD `8879808f8ff95cb373c83e1dba3aa8afe737df5f`。PR #2 保持 Draft/Open 或待审状态，不合并 main、不发布稳定版。每次恢复工作必须重查分支 HEAD 和该 SHA 对应 CI。
+**当前候选：** 0.7.2（文件范围选项、来源不明保护及严格 ZIP 恢复校验）；分支 `threadline/archive-handoff-cloud`；本文件建立时基线 HEAD `8879808f8ff95cb373c83e1dba3aa8afe737df5f`。PR #2 保持 Draft/Open 或待审状态，不合并 main、不发布稳定版。每次恢复工作必须重查分支 HEAD 和该 SHA 对应 CI。
 
 **当前总裁定：** `ENGINEERING_CANDIDATE_SYNTHETIC_PASS / REAL_ACCOUNT_ACCEPTANCE_PENDING / HUMAN_UX_ACCEPTANCE_PENDING / NO_RELEASE`。
 
@@ -41,9 +41,28 @@
 - **仅最后生成的文件：** 只下载当前活动分支中最后一条包含助手生成文件的消息里，最后识别到的一份文件。用户上传文件及其他已确认不在范围内的分支文件标记为 `excluded / OUT_OF_SAVE_SCOPE`；来源不明或无法映射到活动分支消息的文件标记为 `unavailable / SAVE_SCOPE_SOURCE_UNRESOLVED`，单独计入未判定，不当作范围排除。
 - 生成来源根据消息角色和文件引用识别；来源不明或无法映射到消息节点时，不纳入“最后生成”候选，并标记为 `SAVE_SCOPE_SOURCE_UNRESOLVED`，单独计入未判定，不伪装成按范围跳过。当前分支没有可识别的助手生成文件时，仍保存正文，并明确提示没有匹配文件。
 - “仅最后生成”与实时缓存互斥，界面禁用实时缓存，服务端也拒绝该组合，避免持续缓存把单文件范围变成多文件累积。
+- ZIP 恢复不仅校验最多只有一份已保存文件，还要求其 key 与当前活动分支选出的最后生成文件完全一致；较早生成的文件即使被伪装为已保存，也会被拒绝。
 - 排除状态写入本地档案、ZIP manifest 和恢复结果；官方 ZIP 对照与接续清单分别呈现“按范围跳过”，不将其混入缺失文件数。
 
-自动化验收新增：消息角色来源分类、活动分支与非活动分支选择、只下载目标文件、无生成文件时正文仍保存、排除状态 ZIP 往返、实时缓存组合拒绝。真实账号仍需验证 ChatGPT 当前数据结构对助手生成文件的实际标记是否充分；若来源不明，必须保持 `SAVE_SCOPE_SOURCE_UNRESOLVED`，不得推测。
+自动化验收新增：消息角色来源分类、活动分支与非活动分支选择、工具输出来源不明时不误选且不下载、全部文件模式仍尝试所有可访问文件、只下载目标文件、排除/未判定状态 ZIP 往返、伪造较早文件为最后生成文件时恢复拒绝、实时缓存组合拒绝。真实账号仍需验证 ChatGPT 当前数据结构对助手生成文件的实际标记是否充分；若来源不明，必须保持 `SAVE_SCOPE_SOURCE_UNRESOLVED`，不得推测。
+
+## 0.7.2 最新云端验收
+
+准确 HEAD：`4363fe07dc0062b5906204184130e25cc48507fc`。GitHub Actions verify run `41330112711`（#181）通过，Windows 与 Ubuntu 两组作业均成功：
+
+- Node 回归与安全测试：**38/38** 通过。
+- 合成 Chromium MV3 E2E：**17/17** 通过。
+- IndexedDB 真实浏览器存储边界（合成数据）：**7/7** 通过。
+- Linux、Windows 构建通过；候选包从该准确 SHA 生成。
+- 新增验证：工具角色但来源不明的文件不会被误选为助手生成；全部文件模式仍尝试下载；最后生成模式只下载 `final.txt`，其余 7 个文件按范围跳过，来源不明的 `tool-output.txt` 单独标记未判定且不发起下载；ZIP 恢复拒绝将较早生成的 `old.pdf` 伪装成最后生成文件。
+
+候选 artifact：`threadline-candidate-4363fe07dc0062b5906204184130e25cc48507fc`（ID `13092099752`，GitHub artifact digest `sha256:6398ba23d463148d5e264edca7a546d4978ffd518142fe2fa2aac4ae5487d75d`）。
+
+外层候选 ZIP 内 Edge/Chrome 0.7.2 包的 SHA-256：`f921a5900d5d56e02b477253d4ad226c29af4c6cd8317960ee0051b5087abad6`。包内 `BUILD_INFO.json` 的 `source_commit` 与上述 HEAD 一致。
+
+合成证据 artifact：`threadline-synthetic-evidence-4363fe07dc0062b5906204184130e25cc48507fc`（ID `13092089974`，digest `sha256:989f8313e8deba75add55499e4b6510abf4839239198cdc5acc7fc642d5adb14`）。其中 `browser-report.json` 和 `storage-report.json` 均为 pass；含 320/360/1280px 页面截图及“仅最后生成”首页截图。
+
+上述结果仍是合成数据和合成 ChatGPT 页面。真实账号、真实历史文件和真人 UX 验收仍未完成。
 
 ## 已有云端证据
 
