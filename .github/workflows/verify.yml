@@ -12,7 +12,8 @@ concurrency:
 jobs:
   verify:
     name: verify
-    runs-on: ubuntu-latest
+    # Playwright 1.56 is pinned. Do not silently move its OS dependency baseline.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
