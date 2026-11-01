@@ -118,7 +118,12 @@
   }
   for(const a of snapshot.assets)C.check(keys.has(a.key),'MANIFEST_ASSET_OMITTED');
   C.check(manifest.saveScope==null||['all','last_generated'].includes(manifest.saveScope),'INVALID_ARCHIVE_SAVE_SCOPE');
-  if(manifest.saveScope==='last_generated'){const savedFiles=files.filter(a=>a.state==='saved');C.check(savedFiles.length<=1,'INVALID_LAST_GENERATED_SCOPE');if(savedFiles.length)C.check(savedFiles[0].origin==='assistant_generated'||savedFiles[0].kind==='generated','INVALID_LAST_GENERATED_FILE_ORIGIN');}
+  if(manifest.saveScope==='last_generated'){
+   const selected=C.selectAssetKeys(snapshot,'last_generated'),savedFiles=files.filter(a=>a.state==='saved');
+   C.check(savedFiles.length<=1,'INVALID_LAST_GENERATED_SCOPE');
+   if(savedFiles.length)C.check(selected.length===1&&savedFiles[0].key===selected[0],'INVALID_LAST_GENERATED_FILE_SELECTION');
+   if(selected.length){const row=files.find(a=>a.key===selected[0]);C.check(row&&row.state!=='excluded','INVALID_LAST_GENERATED_SCOPE_STATE');}
+  }
   const state=manifest.state==='ready'&&snapshot.integrity.state==='valid'&&files.every(a=>a.state==='saved'||a.state==='excluded')?'ready':'partial';
   return S.importCapture(snapshot,files,blobs,state,manifest.saveScope||'all');
  }
