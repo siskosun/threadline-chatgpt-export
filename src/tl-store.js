@@ -1,16 +1,14 @@
 /* ThreadLine IndexedDB, extension origin only. MIT. */
 (() => {
  'use strict';
- const C=globalThis.TLCore, NAME='threadline-local-archive-v1';
- let opening;
+ const C=globalThis.TLCore,NAME='threadline-local-archive-v1';let opening;
  const request=r=>new Promise((resolve,reject)=>{r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error||new Error('IDB_REQUEST_FAILED'));});
  function open(){
   if(opening)return opening;
   opening=new Promise((resolve,reject)=>{
    const r=indexedDB.open(NAME,1);
    r.onupgradeneeded=()=>{
-    const db=r.result;
-    db.createObjectStore('captures',{keyPath:'id'});
+    const db=r.result;db.createObjectStore('captures',{keyPath:'id'});
     const a=db.createObjectStore('assets',{keyPath:['captureId','key']});a.createIndex('capture','captureId');
     db.createObjectStore('files',{keyPath:'sha256'});
     const ch=db.createObjectStore('chunks',{keyPath:['captureId','key','seq']});ch.createIndex('owner',['captureId','key']);ch.createIndex('capture','captureId');
@@ -22,12 +20,9 @@
   });return opening;
  }
  async function transaction(names,mode,body){
-  const db=await open();
-  return new Promise((resolve,reject)=>{
-   const t=db.transaction(names,mode), stores=Object.fromEntries(names.map(n=>[n,t.objectStore(n)]));let result,problem;
-   t.oncomplete=()=>resolve(result);
-   t.onabort=()=>reject(problem||t.error||new Error('IDB_TRANSACTION_ABORTED'));
-   t.onerror=()=>{};
+  const db=await open();return new Promise((resolve,reject)=>{
+   const t=db.transaction(names,mode),stores=Object.fromEntries(names.map(n=>[n,t.objectStore(n)]));let result,problem;
+   t.oncomplete=()=>resolve(result);t.onabort=()=>reject(problem||t.error||new Error('IDB_TRANSACTION_ABORTED'));t.onerror=()=>{};
    Promise.resolve().then(()=>body(stores,t)).then(r=>result=r).catch(e=>{problem=e;try{t.abort();}catch{reject(e);}});
   });
  }
@@ -37,27 +32,19 @@
  const assets=captureId=>transaction(['assets'],'readonly',s=>request(s.assets.index('capture').getAll(captureId)));
  const chunks=(captureId,key)=>transaction(['chunks'],'readonly',s=>request(s.chunks.index('owner').getAll(IDBKeyRange.only([captureId,key]))));
  async function snapshot(captureId,model){
-  C.check(model?.schema==='threadline.snapshot/1','INVALID_SNAPSHOT');
-  const clean=C.persistedSnapshot(model), now=new Date().toISOString();
+  C.check(model?.schema==='threadline.snapshot/1','INVALID_SNAPSHOT');const clean=C.persistedSnapshot(model),now=new Date().toISOString();
   await transaction(['captures','assets'],'readwrite',async s=>{
-   const prev=await request(s.captures.get(captureId));
-   if(prev)C.check(prev.snapshot.source.conversationId===clean.source.conversationId&&prev.snapshot.source.origin===clean.source.origin,'CAPTURE_SOURCE_CHANGED');
-   const prior=await request(s.assets.index('capture').getAll(captureId)),old=new Map(prior.map(a=>[a.key,a]));
-   const current=new Set(clean.assets.map(a=>a.key));
-   for(const a of clean.assets){
-    const p=old.get(a.key);
-    if(p?.state==='saved'&&(a.expectedSize==null||a.expectedSize===p.size))s.assets.put({...p,inLatestSnapshot:true});
-    else s.assets.put({...a,captureId,inLatestSnapshot:true,sha256:null,size:0,chunks:0,state:a.state==='unavailable'?'unavailable':'discovered'});
-   }
+   const prev=await request(s.captures.get(captureId)),prevSource=prev?.snapshot?.source||prev?.source;
+   if(prevSource)C.check(prevSource.conversationId===clean.source.conversationId&&prevSource.origin===clean.source.origin,'CAPTURE_SOURCE_CHANGED');
+   const prior=await request(s.assets.index('capture').getAll(captureId)),old=new Map(prior.map(a=>[a.key,a])),current=new Set(clean.assets.map(a=>a.key));
+   for(const a of clean.assets){const p=old.get(a.key);if(p?.state==='saved'&&(a.expectedSize==null||a.expectedSize===p.size))s.assets.put({...p,name:a.name,mime:a.mime==='application/octet-stream'?p.mime:a.mime,inLatestSnapshot:true});else s.assets.put({...a,captureId,inLatestSnapshot:true,sha256:null,size:0,chunks:0,state:a.state==='unavailable'?'unavailable':'discovered'});}
    for(const a of prior)if(!current.has(a.key))s.assets.put({...a,inLatestSnapshot:false});
    s.captures.put({id:captureId,snapshot:clean,createdAt:prev?.createdAt||now,updatedAt:now,state:'capturing',live:!!prev?.live});
-  });
-  return get('captures',captureId);
+  });return get('captures',captureId);
  }
  async function beginAsset(captureId,key){
   await transaction(['assets','chunks'],'readwrite',async s=>{
-   const a=await request(s.assets.get([captureId,key]));C.check(a,'UNKNOWN_ASSET');
-   if(a.state==='saved')return;
+   const a=await request(s.assets.get([captureId,key]));C.check(a,'UNKNOWN_ASSET');if(a.state==='saved')return;
    const old=await request(s.chunks.index('owner').getAllKeys(IDBKeyRange.only([captureId,key])));old.forEach(k=>s.chunks.delete(k));
    s.assets.put({...a,state:'downloading',size:0,chunks:0,reason:null});
   });
@@ -65,26 +52,20 @@
  async function chunk(captureId,key,seq,bytes){
   C.check(bytes instanceof Uint8Array&&bytes.length>0&&bytes.length<=262144,'INVALID_CHUNK');
   await transaction(['assets','chunks'],'readwrite',async s=>{
-   const a=await request(s.assets.get([captureId,key]));C.check(a?.state==='downloading','ASSET_NOT_DOWNLOADING');
-   C.check(Number.isSafeInteger(seq)&&seq===a.chunks,'CHUNK_SEQUENCE_MISMATCH');
-   s.chunks.put({captureId,key,seq,blob:new Blob([bytes])});
-   s.assets.put({...a,chunks:seq+1,size:a.size+bytes.length});
+   const a=await request(s.assets.get([captureId,key]));C.check(a?.state==='downloading','ASSET_NOT_DOWNLOADING');C.check(Number.isSafeInteger(seq)&&seq===a.chunks,'CHUNK_SEQUENCE_MISMATCH');
+   s.chunks.put({captureId,key,seq,blob:new Blob([bytes])});s.assets.put({...a,chunks:seq+1,size:a.size+bytes.length});
   });
  }
  async function finishAsset(captureId,key,mime){
   const a=await get('assets',[captureId,key]);C.check(a?.state==='downloading','ASSET_NOT_DOWNLOADING');
-  const parts=await chunks(captureId,key),hash=new C.SHA256();let size=0;
-  C.check(parts.length===a.chunks&&a.chunks>0,'MISSING_ASSET_CHUNKS');
+  const parts=await chunks(captureId,key),hash=new C.SHA256();let size=0;C.check(parts.length===a.chunks&&a.chunks>0,'MISSING_ASSET_CHUNKS');
   for(let i=0;i<parts.length;i++){C.check(parts[i].seq===i,'CHUNK_SEQUENCE_MISMATCH');const bytes=new Uint8Array(await parts[i].blob.arrayBuffer());hash.update(bytes);size+=bytes.length;}
-  C.check(size>0&&size===a.size,'EMPTY_OR_TRUNCATED_ASSET');
-  if(a.expectedSize!=null)C.check(a.expectedSize===size,'SOURCE_SIZE_MISMATCH');
-  const sha256=hash.hex(),type=typeof mime==='string'&&/^[\w.+-]+\/[\w.+-]+/.test(mime)?mime.split(';')[0]:a.mime;
-  const blob=new Blob(parts.map(p=>p.blob),{type});
+  C.check(size>0&&size===a.size,'EMPTY_OR_TRUNCATED_ASSET');if(a.expectedSize!=null)C.check(a.expectedSize===size,'SOURCE_SIZE_MISMATCH');
+  const sha256=hash.hex(),type=typeof mime==='string'&&/^[\w.+-]+\/[\w.+-]+/.test(mime)?mime.split(';')[0]:a.mime,blob=new Blob(parts.map(p=>p.blob),{type});
   await transaction(['files','assets','chunks'],'readwrite',async s=>{
+   const current=await request(s.assets.get([captureId,key]));C.check(current?.state==='downloading'&&current.size===size&&current.chunks===a.chunks,'ASSET_CHANGED_DURING_COMMIT');
    const existing=await request(s.files.get(sha256));if(!existing)s.files.put({sha256,blob,size});
-   const current=await request(s.assets.get([captureId,key]));C.check(current?.state==='downloading'&&current.size===size,'ASSET_CHANGED_DURING_COMMIT');
-   s.assets.put({...current,mime:type,state:'saved',sha256,size,savedAt:new Date().toISOString(),reason:null});
-   parts.forEach(p=>s.chunks.delete([captureId,key,p.seq]));
+   s.assets.put({...current,mime:type,state:'saved',sha256,size,savedAt:new Date().toISOString(),reason:null});parts.forEach(p=>s.chunks.delete([captureId,key,p.seq]));
   });return get('assets',[captureId,key]);
  }
  async function failAsset(captureId,key,reason){
@@ -95,48 +76,37 @@
   });
  }
  async function finishCapture(captureId,requested='ready'){
-  const rows=await assets(captureId),c=await get('captures',captureId);C.check(c,'CAPTURE_NOT_FOUND');
-  const missing=rows.filter(a=>a.state!=='saved').length;
-  const state=requested==='ready'?(missing||c.snapshot.integrity.state!=='valid'?'partial':'ready'):requested;
-  await set('captures',{...c,state,updatedAt:new Date().toISOString(),savedFiles:rows.length-missing,missingFiles:missing});
-  return get('captures',captureId);
+  const rows=await assets(captureId),c=await get('captures',captureId);C.check(c?.snapshot,'CAPTURE_NOT_FOUND');
+  const missing=rows.filter(a=>a.state!=='saved').length,state=requested==='ready'?(missing||c.snapshot.integrity.state!=='valid'?'partial':'ready'):requested;
+  await set('captures',{...c,state,updatedAt:new Date().toISOString(),savedFiles:rows.length-missing,missingFiles:missing});return get('captures',captureId);
  }
  async function verifiedBlob(sha256){
-  C.check(/^[0-9a-f]{64}$/.test(sha256),'INVALID_CONTENT_HASH');
-  const row=await get('files',sha256);C.check(row?.blob instanceof Blob,'LOCAL_FILE_MISSING');
-  C.check(row.blob.size===row.size,'LOCAL_FILE_SIZE_MISMATCH');
-  C.check(await C.hashBlob(row.blob)===sha256,'LOCAL_FILE_HASH_MISMATCH');
-  return row.blob;
+  C.check(/^[0-9a-f]{64}$/.test(sha256),'INVALID_CONTENT_HASH');const row=await get('files',sha256);
+  C.check(row?.blob instanceof Blob,'LOCAL_FILE_MISSING');C.check(row.blob.size===row.size,'LOCAL_FILE_SIZE_MISMATCH');C.check(await C.hashBlob(row.blob)===sha256,'LOCAL_FILE_HASH_MISMATCH');return row.blob;
  }
  async function putBlob(blob){
-  C.check(blob instanceof Blob&&blob.size>0,'EMPTY_ASSET');
-  const sha256=await C.hashBlob(blob);if(!await get('files',sha256))await set('files',{sha256,blob,size:blob.size});
-  return {sha256,size:blob.size};
+  C.check(blob instanceof Blob&&blob.size>0,'EMPTY_ASSET');const sha256=await C.hashBlob(blob);
+  if(!await get('files',sha256))await set('files',{sha256,blob,size:blob.size});return{sha256,size:blob.size};
  }
  async function recover(activeIds=[]){
-  const active=new Set(activeIds);for(const c of await all('captures'))if((c.state==='capturing'||c.live)&&!active.has(c.id)){
+  const active=new Set(activeIds);
+  for(const c of await all('captures'))if((c.state==='capturing'||c.live)&&!active.has(c.id)){
    const rows=await assets(c.id);for(const a of rows)if(a.state==='downloading')await failAsset(c.id,a.key,'INTERRUPTED_RETRY_EXPLICITLY');
    await set('captures',{...c,state:c.state==='capturing'?'interrupted':c.state,live:false,cacheStoppedReason:'BROWSER_OR_WORKER_RESTART',updatedAt:new Date().toISOString()});
   }
  }
  async function removeCapture(captureId){
   await transaction(['captures','assets','chunks'],'readwrite',async s=>{
-   s.captures.delete(captureId);
-   for(const key of await request(s.assets.index('capture').getAllKeys(captureId)))s.assets.delete(key);
-   for(const key of await request(s.chunks.index('capture').getAllKeys(captureId)))s.chunks.delete(key);
+   s.captures.delete(captureId);for(const key of await request(s.assets.index('capture').getAllKeys(captureId)))s.assets.delete(key);for(const key of await request(s.chunks.index('capture').getAllKeys(captureId)))s.chunks.delete(key);
   });
-  // Content-addressed blobs may be shared by another archive or pending handoff.
-  const referenced=new Set((await all('assets')).map(a=>a.sha256).filter(Boolean));
-  for(const h of await all('handoffs'))for(const f of h.files||[])referenced.add(f.sha256);
+  const referenced=new Set((await all('assets')).map(a=>a.sha256).filter(Boolean));for(const h of await all('handoffs'))for(const f of h.files||[])referenced.add(f.sha256);
   for(const row of await all('files'))if(!referenced.has(row.sha256))await transaction(['files'],'readwrite',s=>request(s.files.delete(row.sha256)));
  }
  async function importCapture(snapshotData,items,blobs,state){
-  const captureId=C.id();
-  for(const [sha,blob] of blobs){C.check(await C.hashBlob(blob)===sha,'IMPORT_HASH_MISMATCH');await putBlob(blob);}
+  const captureId=C.id();for(const[sha,blob]of blobs){C.check(await C.hashBlob(blob)===sha,'IMPORT_HASH_MISMATCH');await putBlob(blob);}
   const snapshotCopy=C.persistedSnapshot(snapshotData);
   await transaction(['captures','assets'],'readwrite',s=>{
-   s.captures.put({id:captureId,snapshot:snapshotCopy,state,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),imported:true,live:false});
-   for(const a of items)s.assets.put({...a,captureId});
+   s.captures.put({id:captureId,snapshot:snapshotCopy,state,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),imported:true,live:false});for(const a of items)s.assets.put({...a,captureId});
   });return captureId;
  }
  globalThis.TLStore=Object.freeze({open,get,all,set,assets,snapshot,beginAsset,chunk,finishAsset,failAsset,finishCapture,verifiedBlob,putBlob,recover,removeCapture,importCapture});
