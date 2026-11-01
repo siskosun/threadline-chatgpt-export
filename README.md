@@ -1,14 +1,18 @@
-# ChatGPT Markdown Export
+# ThreadLine Archive
 
-A lightweight browser extension for archiving ChatGPT conversations in durable, reusable formats: Markdown, HTML, and ZIP.
+A browser extension for preserving ChatGPT conversations and accessible media in local archives. ThreadLine is rebuilding on the ChatGPT Markdown Export capture base and will add reliable cross-window handoff.
 
-Repository: [github.com/thekester/chatgpt-export](https://github.com/thekester/chatgpt-export)
+Repository: [github.com/siskosun/threadline-chatgpt-export](https://github.com/siskosun/threadline-chatgpt-export) · Upstream: [thekester/chatgpt-export](https://github.com/thekester/chatgpt-export)
 
 It works with Chrome, Chromium, Edge, and Firefox without an intermediary server. Exports use the data available from the current ChatGPT session and preserve media, files, sources, and metadata whenever available.
 
+## ThreadLine rebuild status
+
+This cloud branch starts from upstream `0.6.59` commit `13568bf75688de74a5af563b20d5ccd28f4ad532`. A0 removes all conversation/project deletion operations and replaces broad optional host access with a small OpenAI media-host allowlist. IndexedDB archival, live sandbox-file caching, transcript compilation, and cross-window handoff are subsequent stages and are not claimed as implemented here.
+
 ## Features
 
-- Export the current conversation or the accessible conversation history.
+- Export the current conversation or accessible conversation history.
 - Live export progress with a percentage and stage label after an export is started.
 - Downloadable privacy-conscious diagnostic log when an export fails or completes with partial errors; the latest log is kept locally so it can still be downloaded after reopening the popup.
 - Markdown, HTML, both formats, or a native JEX file for Joplin.
@@ -58,8 +62,8 @@ Firefox uses `background.scripts`, while Chromium-based browsers use `background
 3. Pick a format (**Markdown**, **HTML**, **Both** or **Joplin**).
 4. Choose what to export:
    - **This conversation**: the chat open in the tab.
-   - **Choose conversations…**: opens a large window over ChatGPT where you search, filter by date or location, tick conversations (Shift-click selects a range) and export them. After an export, you can choose to delete the exported conversations from ChatGPT, with a separate confirmation. You can send a running job to the background and keep using ChatGPT.
-   - **Entire history**: everything, or only the N most recent conversations. Before it starts, choose whether to automatically delete conversations that export successfully. If enabled, deletion starts after the export files are created and their downloads are started; there is no extra confirmation at the end. The prompt warns that the browser cannot verify that you kept the files. If disabled, you can review the exported conversations and delete them later yourself.
+   - **Choose conversations…**: opens a large window over ChatGPT where you search, filter by date or location, tick conversations (Shift-click selects a range) and export them.
+   - **Entire history**: everything, or only the N most recent conversations. The extension exports the accessible history without modifying conversations or projects in ChatGPT.
 5. Extra settings are under **Options**; each **i** bubble explains its option.
 
 While an export runs, keep its ChatGPT tab open: the export is built in that tab, so reloading or closing it stops the export (the browser asks for confirmation first). Moving between conversations in that tab is fine. To keep chatting, open ChatGPT in another window. Conversations created during the export are not included, because the list is captured when the export starts.
@@ -71,7 +75,7 @@ Settings are stored locally in the popup. History exports may produce multiple Z
 | Option | Effect |
 | --- | --- |
 | Markdown / HTML / Both / JEX | Selects the output format. **Both** means Markdown and HTML. **JEX** creates a native Joplin import file for the current conversation; **Export all history** creates one `.jex` notebook containing one note per accessible conversation. |
-| Choose conversations… | Opens an in-page picker with search, period, location and sort filters. Export the ticked conversations in the chosen format, or delete them. For this picker flow, **Delete these N from ChatGPT…** offers to delete only successfully exported conversations after you review the download. **Delete…** exports a backup first by default, then asks again. Deletions use a separate confirmation with an “I understand” checkbox. |
+| Choose conversations… | Opens an in-page picker with search, period, location and sort filters. Export the ticked conversations in the chosen format. |
 | Save images in a separate directory | Downloads images into an `images/` directory inside the export archive and keeps Markdown links to them. |
 | Save attachments and generated files in a separate directory | Preserves documents and generated files in a `files/` directory inside the export archive and keeps Markdown links to them. |
 | Markdown flavor | Choose **Markdown with HTML elements** or **Pure Markdown only**. It controls whether the Markdown file is allowed to contain raw HTML tags, and changes how a user question is rendered (see below). |
@@ -90,7 +94,7 @@ Select **JEX** when importing into Joplin. **Export this conversation** creates 
 
 For a single-conversation JEX, Joplin places the note in its default notebook, usually named `Imported`. A full-history JEX includes its own notebook, so all exported conversation notes are grouped together on import.
 
-Access to all websites is optional. It is requested only when the extension needs to retrieve images or files hosted outside ChatGPT. Without this permission, the main export still works and preserves remote links when necessary.
+Optional media access is restricted to OpenAI-owned file and media hosts (`oaiusercontent.com`, `oaistatic.com`, and `images.openai.com`). The extension does not request access to all websites. Other third-party media remains as remote links.
 
 ## Export structure
 
@@ -131,7 +135,7 @@ The project requires neither Node.js nor a JavaScript compilation step. The Pyth
 
 ```text
 src/
-├── background.js   # Downloads requiring host permissions
+├── background.js   # Downloads from the OpenAI media-host allowlist
 ├── content.js      # ChatGPT access and export orchestration
 ├── render.js       # Markdown, HTML, and index rendering
 └── zip.js          # Browser-side ZIP/ZIP64 generation
@@ -155,7 +159,7 @@ The `dist/` directory is recreated on every run.
 - Exports are generated locally in the browser.
 - The extension does not send data to a third-party service.
 - Requests to ChatGPT use the session already open in the browser.
-- External image requests are made only when the corresponding optional permission is granted.
+- External downloads are restricted to the OpenAI media-host allowlist and require the corresponding optional permission.
 - ChatGPT’s internal APIs may change without notice.
 - The DOM fallback exports only the conversation currently displayed; it cannot replace API access for browsing the full history.
 - Self-contained Markdown increases binary resource size by about 33% because of Base64 encoding. Some Markdown viewers may block `data:` URLs.
@@ -164,10 +168,10 @@ Private reasoning and hidden internal tool calls are not exported: only content 
 
 ## Version
 
-Current version: **0.6.59**
+Current version: **0.7.0**
 
 Version **0.6.59** converts ChatGPT's JSX-style source links and citations into usable links in Markdown, HTML, and JEX exports. Inline SVG diagrams are preserved in HTML with a restricted element and attribute set; pure Markdown points readers to the HTML export for those diagrams.
 
 This version clarifies that pinned conversations and projects are included in the optional post-export deletion behavior; pinning does not protect them. It also clarifies the deletion sequence and warning. Visible project conversation links are scanned directly from the sidebar, including pinned projects.
 
-Earlier `0.6.39` changes include removing em dashes from project text and the extension interface, shortening the manifest description to meet Chrome Web Store's 132-character limit, updating the extension icon, improving selected conversation deletion during a history scan, de-duplicating deleted conversations, and clarifying that a deletion request may take up to 10 minutes to disappear from ChatGPT history. The picker avoids dynamic `innerHTML` assignment, and Firefox minimum versions match the declared manifest capabilities.
+The upstream `0.6.39` release also improved picker behavior and Firefox manifest compatibility. ThreadLine removes destructive conversation and project actions from the product surface.
