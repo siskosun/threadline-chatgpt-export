@@ -60,9 +60,24 @@ async function prepareHandoff(msg){
  const h={id:C.id(),captureId:c.id,createdAt:new Date().toISOString(),state:'prepared',prompt,files,batches,missing:plan.missing};await S.set('handoffs',h);return h;
 }
 async function announce(tabId){const h=(await S.all('handoffs')).find(h=>h.targetTabId===tabId&&h.state==='target_opened');if(h)await api.tabs.sendMessage(tabId,{type:'tl:handoffAvailable'}).catch(()=>{});}
-async function openHandoff(id){
- const h=await S.get('handoffs',id);C.check(h?.state==='prepared','HANDOFF_ALREADY_OPENED');const win=await api.windows.create({url:'https://chatgpt.com/',focused:true,type:'normal'}),target=win.tabs?.[0];C.check(Number.isInteger(target?.id),'NEW_WINDOW_FAILED');
- const updated={...h,state:'target_opened',targetTabId:target.id,targetWindowId:win.id,targetDocumentId:null};await S.set('handoffs',updated);if(target.status==='complete')await announce(target.id);return updated;
+// A fresh window must not load ChatGPT before its tab is durably bound to this handoff.
+// Serialize opens as well as claims: repeated UI clicks cannot create duplicate targets.
+let openQueue=Promise.resolve();
+function openHandoff(id){
+ const operation=openQueue.then(async()=>{
+  const h=await S.get('handoffs',id);C.check(h?.state==='prepared','HANDOFF_ALREADY_OPENED');
+  const win=await api.windows.create({url:'about:blank',focused:true,type:'normal'}),target=win.tabs?.[0];C.check(Number.isInteger(target?.id),'NEW_WINDOW_FAILED');
+  const updated={...h,state:'target_opened',targetTabId:target.id,targetWindowId:win.id,targetDocumentId:null};
+  try{
+   await S.set('handoffs',updated);
+   const loaded=await api.tabs.update(target.id,{url:'https://chatgpt.com/'});
+   if(loaded.status==='complete')await announce(target.id);
+   return updated;
+  }catch(e){
+   await S.set('handoffs',{...updated,state:'injection_blocked',lastError:'TARGET_NAVIGATION_UNCONFIRMED'}).catch(()=>{});
+   throw new Error('TARGET_NAVIGATION_UNCONFIRMED');
+  }
+ });openQueue=operation.catch(()=>{});return operation;
 }
 async function targetHandoff(msg,sender){
  C.check(trusted(sender)&&Number.isInteger(sender.tab?.id)&&sender.documentId,'TARGET_TAB_REQUIRED');const h=await S.get('handoffs',msg.id);C.check(h&&h.targetTabId===sender.tab.id&&h.targetDocumentId===sender.documentId,'HANDOFF_TARGET_MISMATCH');C.chatUrl(sender.url||sender.tab.url,{target:true});C.chatUrl((await api.tabs.get(sender.tab.id)).url,{target:true});return h;
