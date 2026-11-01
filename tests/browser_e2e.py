@@ -43,6 +43,7 @@ FILES={
 PDF=b'%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
 LIVE=b'live-cache-byte-proof-314159'
 FINAL=b'last-generated-file-proof-271828'
+BRANCH=b'alternative-branch-file-proof-161803'
 def conversation(live=False):
     mapping={'root':{'id':'root','parent':None,'children':['n0'],'message':{'id':'system','author':{'role':'system'},'content':{'parts':['NOT_FOR_EXPORT_SECRET']}}}}
     for i in range(120):
@@ -57,7 +58,7 @@ def conversation(live=False):
     mapping['n9']['message']['metadata']={'is_user_visible':True,'attachments':[{'id':'file_tool_unknown','name':'tool-output.txt','mime_type':'text/plain'}]}
     mapping['n6']['message']['metadata']['attachments']=[{'name':'unresolved.pdf'}]
     mapping['n4']['children'].append('alternative')
-    mapping['alternative']={'id':'alternative','parent':'n4','children':[],'message':{'id':'m-alt','author':{'role':'assistant'},'content':{'parts':['Alternative conclusion, not the active path.']}}}
+    mapping['alternative']={'id':'alternative','parent':'n4','children':[],'message':{'id':'m-alt','author':{'role':'assistant'},'content':{'parts':['Alternative conclusion, not the active path.','[branch.pdf](sandbox:/mnt/data/branch.pdf)']}}}
     if live:
         mapping['n119']['children']=['live']
         mapping['live']={'id':'live','parent':'n119','children':[],'message':{'id':'m-live','author':{'role':'assistant'},'content':{'parts':['[live.txt](sandbox:/mnt/data/live.txt)']}}}
@@ -102,6 +103,7 @@ async def main():
             mode['sandbox_paths'].append(path)
             if path=='/mnt/data/report.pdf':return await route.fulfill(content_type='application/pdf',headers={'Content-Disposition':'attachment; filename=report.pdf'},body=PDF)
             if path=='/mnt/data/final.txt':return await route.fulfill(content_type='text/plain',body=FINAL)
+            if path=='/mnt/data/branch.pdf':return await route.fulfill(content_type='application/pdf',body=BRANCH)
             if path=='/mnt/data/live.txt':return await route.fulfill(content_type='text/plain',body=LIVE)
             return await route.fulfill(status=422,content_type='application/json',body='{"error":"fixture unavailable"}')
         if p=='/':return await route.fulfill(content_type='text/html',body=TARGET_HTML.replace('__DRAFT__','USER EXISTING DRAFT' if mode['target_draft'] else '').replace('__MODE__',json.dumps(mode['target_mode'])))
@@ -151,15 +153,15 @@ async def main():
             captures=await workspace.evaluate('TLStore.all("captures")');cap=captures[0];cid=cap['id']
             assert len(cap['snapshot']['messages'])==121 and cap['snapshot']['integrity']['state']=='valid' and cap['state']=='partial',cap
             assets=await workspace.evaluate('id=>TLStore.assets(id)',cid)
-            assert len(assets)==9,assets
+            assert len(assets)==10,assets
             saved=[a for a in assets if a['state']=='saved'];missing=[a for a in assets if a['state'] not in ['saved','excluded']]
-            assert len(saved)==6 and len(missing)==3 and not [a for a in assets if a['state']=='excluded'],assets
+            assert len(saved)==7 and len(missing)==3 and not [a for a in assets if a['state']=='excluded'],assets
             assert 'file_tool_unknown' in mode['file_download_ids'],mode['file_download_ids']
             assert all(a['sha256'] and a['size']>0 for a in saved)
-            expected={hashlib.sha256(v[2]).hexdigest() for v in FILES.values()}|{hashlib.sha256(PDF).hexdigest(),hashlib.sha256(FINAL).hexdigest()}
+            expected={hashlib.sha256(v[2]).hexdigest() for v in FILES.values()}|{hashlib.sha256(PDF).hexdigest(),hashlib.sha256(FINAL).hexdigest(),hashlib.sha256(BRANCH).hexdigest()}
             assert {a['sha256'] for a in saved}==expected
             assert 'synthetic-do-not-persist-token' not in json.dumps(cap) and 'NOT_FOR_EXPORT_SECRET' not in json.dumps(cap)
-            passed('capture_120_messages_all_accessible_branches_real_bytes_and_missing_states',{'saved':6,'unavailable':3})
+            passed('capture_120_messages_all_accessible_branches_real_bytes_and_missing_states',{'saved':7,'unavailable':3})
             await wait_async(workspace,'async()=>{const r=await chrome.runtime.sendMessage({type:"tl:sessions"});return r.ok&&!r.data.length&&!document.querySelector("#continue").hidden}',timeout=30000)
             assert await workspace.locator('#capture').is_hidden()
             assert await workspace.get_by_role('button',name='继续这段对话').is_visible()
@@ -186,10 +188,12 @@ async def main():
             with zipfile.ZipFile(inner,'w',zipfile.ZIP_DEFLATED) as z:
                 for key,value in FILES.items():z.writestr(key+'.dat',value[2])
                 z.writestr('report.pdf',PDF)
+                z.writestr('final.txt',FINAL)
+                z.writestr('branch.pdf',BRANCH)
             outer=io.BytesIO()
             with zipfile.ZipFile(outer,'w',zipfile.ZIP_DEFLATED) as z:z.writestr('Files-001.zip',inner.getvalue())
             comparison=await workspace.evaluate('async x=>TLArchive.compareOfficial(x.id,new Blob([TLCore.base64ToBytes(x.b64)]))',{'id':cid,'b64':base64.b64encode(outer.getvalue()).decode()})
-            assert sum(x['result']=='bytes_match' for x in comparison['records'])==5,comparison
+            assert sum(x['result']=='bytes_match' for x in comparison['records'])==7,comparison
             passed('nested_official_style_zip_fixture_byte_comparison',comparison)
             chunk_result=await workspace.evaluate('''async()=>{
               const model=TLCore.normalizeConversation({conversation_id:'conversation_chunk_001',current_node:'n',mapping:{n:{parent:null,children:[],message:{id:'m',author:{role:'user'},content:{parts:['fixture']},metadata:{attachments:[{id:'file_chunk',name:'chunks.bin'}]}}}}},'https://chatgpt.com/c/conversation_chunk_001');
@@ -225,14 +229,14 @@ async def main():
             scoped=await scope_workspace.evaluate('''async()=>{const c=(await TLStore.all('captures')).find(x=>x.saveScope==='last_generated'),assets=await TLStore.assets(c.id),out=await TLArchive.exportCapture(c.id),restored=await TLArchive.restore(out.blob),copy=await TLStore.get('captures',restored),copyAssets=await TLStore.assets(restored),official=await TLArchive.buildZip([{name:'final.txt',blob:new Blob(['last-generated-file-proof-271828'],{type:'text/plain'})}]),comparison=await TLArchive.compareOfficial(c.id,official);return{capture:c,assets,manifest:out.manifest,restored:copy,restoredAssets:copyAssets,comparison};}''')
             scoped_saved=[a for a in scoped['assets'] if a['state']=='saved'];scoped_excluded=[a for a in scoped['assets'] if a['state']=='excluded'];scoped_missing=[a for a in scoped['assets'] if a['state'] not in ['saved','excluded']]
             assert scoped['capture']['state']=='partial' and len(scoped_saved)==1 and scoped_saved[0]['name']=='final.txt',scoped
-            assert len(scoped_excluded)==7 and len(scoped_missing)==1,scoped
+            assert len(scoped_excluded)==8 and len(scoped_missing)==1,scoped
             assert scoped_missing[0]['name']=='tool-output.txt' and scoped_missing[0]['reason']=='SAVE_SCOPE_SOURCE_UNRESOLVED',scoped
             assert set(mode['sandbox_paths'][before_paths:])=={'/mnt/data/final.txt'},mode['sandbox_paths'][before_paths:]
             assert 'file_tool_unknown' not in mode['file_download_ids'][before_file_ids:],mode['file_download_ids'][before_file_ids:]
             assert scoped['manifest']['state']=='partial' and scoped['manifest']['saveScope']=='last_generated',scoped['manifest']
             assert scoped['restored']['state']=='partial' and scoped['restored']['saveScope']=='last_generated',scoped['restored']
-            assert len([a for a in scoped['restoredAssets'] if a['state']=='excluded'])==7
-            assert sum(x['result']=='bytes_match' for x in scoped['comparison']['records'])==1 and sum(x['result']=='excluded_by_save_scope' for x in scoped['comparison']['records'])==7,scoped['comparison']
+            assert len([a for a in scoped['restoredAssets'] if a['state']=='excluded'])==8
+            assert sum(x['result']=='bytes_match' for x in scoped['comparison']['records'])==1 and sum(x['result']=='excluded_by_save_scope' for x in scoped['comparison']['records'])==8,scoped['comparison']
             assert sum(x['result']=='not_saved_locally' for x in scoped['comparison']['records'])==1,scoped['comparison']
             invalid_scope=await scope_workspace.evaluate('''async id=>{const out=await TLArchive.exportCapture(id),entries=await TLArchive.readZip(out.blob),manifest=JSON.parse(await (await entries.get('manifest.json').blob()).text()),target=manifest.files.find(x=>x.name==='old.pdf'),badBlob=new Blob(['wrong-scope-old-file']),sha=await TLCore.hashBlob(badBlob);Object.assign(target,{state:'saved',sha256:sha,size:badBlob.size,path:'assets/'+sha+'.bin',reason:null});const packed=[];for(const e of entries.values())if(e.name!=='manifest.json')packed.push({name:e.name,blob:await e.blob()});packed.push({name:'assets/'+sha+'.bin',blob:badBlob},{name:'manifest.json',content:JSON.stringify(manifest)});let blocked='';try{await TLArchive.restore(await TLArchive.buildZip(packed));}catch(e){blocked=e.message;}return blocked;}''',scoped['capture']['id'])
             assert invalid_scope=='INVALID_LAST_GENERATED_SCOPE',invalid_scope
@@ -242,7 +246,7 @@ async def main():
             source=await ctx.new_page();await source.goto(SOURCE)
             workspace=await ctx.new_page();await workspace.goto('chrome-extension://'+extension+'/workspace/index.html');await workspace.wait_for_function('typeof TLStore!=="undefined"')
             persisted=await workspace.evaluate('async id=>({capture:await TLStore.get("captures",id),assets:await TLStore.assets(id)})',cid)
-            assert persisted['capture']['snapshot']['title']==cap['snapshot']['title'] and len([a for a in persisted['assets'] if a['state']=='saved'])==6
+            assert persisted['capture']['snapshot']['title']==cap['snapshot']['title'] and len([a for a in persisted['assets'] if a['state']=='saved'])==7
             passed('browser_restart_preserves_snapshot_and_binary_blobs')
             async def handoff(target_mode='ready',draft=False):
                 mode['target_mode']=target_mode;mode['target_draft']=draft
