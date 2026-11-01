@@ -122,6 +122,8 @@ async def main():
             # User-perspective acceptance: one obvious action, plain-language hierarchy, no tab maze.
             assert await workspace.locator('nav').count()==0
             assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
+            assert not await workspace.locator('#quota').is_visible()
+            assert await workspace.locator('details.advanced').first.evaluate('(e)=>!e.open')
             assert await workspace.get_by_role('heading',name='把这段对话，带到新聊天').is_visible()
             assert await workspace.get_by_role('button',name='保存对话').is_visible()
             for width in [320,360,1280]:
@@ -230,7 +232,7 @@ async def main():
             assert uh['state']=='upload_unknown',uh
             assert await unknown_target.evaluate('window.sends')==0 and await unknown_target.evaluate('window.uploadEvents')==1
             passed('unrecognized_upload_status_returns_control_without_retry_or_send')
-            await workspace.locator('[data-view="archive"]').click()
+            await workspace.get_by_role('button',name='我的档案').click()
             await workspace.locator('.archive-button').filter(has_text=cap['snapshot']['title']).first.click()
             assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
             assert await workspace.get_by_role('button',name='继续这段对话').is_visible()
