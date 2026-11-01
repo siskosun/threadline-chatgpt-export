@@ -247,7 +247,6 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
       list: q(".list"), rows: q(".rows"), empty: q(".empty"), more: q(".more"),
       idle: [...root.querySelectorAll(".idle-only")], count: q(".count"), format: q(".format"), exp: q(".export"),
       run: q(".run"), runLabel: q(".run .run-label"), runBar: q(".run .bar"), hide: q(".hide"), cancel: q(".cancel"),
-      banner: q(".banner"),
     };
 
     // Keep ChatGPT's global shortcuts (which focus its composer) from
