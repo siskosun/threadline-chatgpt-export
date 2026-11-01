@@ -28,7 +28,16 @@
  }
  const get=(store,key)=>transaction([store],'readonly',s=>request(s[store].get(key)));
  const all=store=>transaction([store],'readonly',s=>request(s[store].getAll()));
- const set=(store,value)=>transaction([store],'readwrite',s=>request(s[store].put(value)));
+ async function set(store,value){
+  if(store!=='handoffs')return transaction([store],'readwrite',s=>request(s[store].put(value)));
+  // A prepared handoff must never commit pointers to files/source concurrently deleted.
+  return transaction(['handoffs','captures','files'],'readwrite',async s=>{
+   C.check(value&&typeof value.captureId==='string'&&Array.isArray(value.files),'INVALID_HANDOFF_RECORD');
+   C.check(await request(s.captures.get(value.captureId)),'HANDOFF_SOURCE_DELETED');
+   for(const f of value.files){C.check(/^[a-f0-9]{64}$/.test(f.sha256||'')&&f.size>0,'INVALID_HANDOFF_FILE');const row=await request(s.files.get(f.sha256));C.check(row?.blob instanceof Blob&&row.size===f.size&&row.blob.size===f.size,'LOCAL_FILE_MISSING');}
+   return request(s.handoffs.put(value));
+  });
+ }
  const assets=captureId=>transaction(['assets'],'readonly',s=>request(s.assets.index('capture').getAll(captureId)));
  const chunks=(captureId,key)=>transaction(['chunks'],'readonly',s=>request(s.chunks.index('owner').getAll(IDBKeyRange.only([captureId,key]))));
  async function snapshot(captureId,model){
@@ -43,7 +52,8 @@
   });return get('captures',captureId);
  }
  async function beginAsset(captureId,key){
-  await transaction(['assets','chunks'],'readwrite',async s=>{
+  await transaction(['captures','assets','chunks'],'readwrite',async s=>{
+   C.check(await request(s.captures.get(captureId)),'CAPTURE_NOT_FOUND');
    const a=await request(s.assets.get([captureId,key]));C.check(a,'UNKNOWN_ASSET');if(a.state==='saved')return;
    const old=await request(s.chunks.index('owner').getAllKeys(IDBKeyRange.only([captureId,key])));old.forEach(k=>s.chunks.delete(k));
    s.assets.put({...a,state:'downloading',size:0,chunks:0,reason:null});
@@ -96,11 +106,21 @@
   }
  }
  async function removeCapture(captureId){
-  await transaction(['captures','assets','chunks'],'readwrite',async s=>{
-   s.captures.delete(captureId);for(const key of await request(s.assets.index('capture').getAllKeys(captureId)))s.assets.delete(key);for(const key of await request(s.chunks.index('capture').getAllKeys(captureId)))s.chunks.delete(key);
+  // Delete only this archive and its handoffs. Compute shared-blob references under
+  // one transaction, not from a stale snapshot that races another capture commit.
+  await transaction(['captures','assets','chunks','files','handoffs'],'readwrite',async s=>{
+   const current=await request(s.captures.get(captureId));if(!current)return;
+   C.check(!current.live&&current.state!=='capturing','STOP_CAPTURE_BEFORE_DELETE');
+   const removed=await request(s.assets.index('capture').getAll(captureId));
+   const candidateHashes=new Set(removed.map(a=>a.sha256).filter(Boolean));
+   s.captures.delete(captureId);for(const a of removed)s.assets.delete([captureId,a.key]);
+   for(const key of await request(s.chunks.index('capture').getAllKeys(captureId)))s.chunks.delete(key);
+   const handoffs=await request(s.handoffs.getAll());
+   for(const h of handoffs)if(h.captureId===captureId){s.handoffs.delete(h.id);for(const f of h.files||[])candidateHashes.add(f.sha256);}
+   const references=new Set((await request(s.assets.getAll())).map(a=>a.sha256).filter(Boolean));
+   for(const h of handoffs)if(h.captureId!==captureId)for(const f of h.files||[])references.add(f.sha256);
+   for(const sha of candidateHashes)if(sha&&!references.has(sha))s.files.delete(sha);
   });
-  const referenced=new Set((await all('assets')).map(a=>a.sha256).filter(Boolean));for(const h of await all('handoffs'))for(const f of h.files||[])referenced.add(f.sha256);
-  for(const row of await all('files'))if(!referenced.has(row.sha256))await transaction(['files'],'readwrite',s=>request(s.files.delete(row.sha256)));
  }
  async function importCapture(snapshotData,items,blobs,state){
   const captureId=C.id();for(const[sha,blob]of blobs){C.check(await C.hashBlob(blob)===sha,'IMPORT_HASH_MISMATCH');await putBlob(blob);}
