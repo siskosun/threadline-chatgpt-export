@@ -12,7 +12,7 @@ concurrency:
 jobs:
   verify:
     name: verify
-    # Playwright 1.56 is pinned. Do not silently move its OS dependency baseline.
+    # Match the pinned Playwright dependency baseline, not a moving OS alias.
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
@@ -36,6 +36,8 @@ jobs:
           python -m playwright install --with-deps chromium
       - name: Synthetic Chromium MV3 acceptance, no real account
         run: xvfb-run -a python tests/browser_e2e.py
+      - name: Actual IndexedDB shared-file and handoff safety checks
+        run: xvfb-run -a python tests/storage_edges.py
       - name: Candidate artifacts, not a production release
         if: success()
         uses: actions/upload-artifact@v4
