@@ -158,15 +158,16 @@
  function persistedSnapshot(s){const copy=clone(s);copy.assets.forEach(a=>{delete a.ephemeralUrl;});return copy;}
  function lastGeneratedSelection(snapshot){
   const assets=Array.isArray(snapshot?.assets)?snapshot.assets:[],nodes=record(snapshot?.nodes)?snapshot.nodes:Object.create(null),active=new Map((Array.isArray(snapshot?.active)?snapshot.active:[]).map((nodeId,index)=>[nodeId,index]));
-  let latest=-1,latestAssets=[],ambiguous=false;
+  let latestGenerated=-1,latestUnknown=-1,latestAssets=[],unmapped=false;
   for(const asset of assets){
-   if(!Object.hasOwn(nodes,asset.nodeId))return{keys:[],ambiguous:true};
+   if(!Object.hasOwn(nodes,asset.nodeId)){unmapped=true;continue;}
    const index=active.get(asset.nodeId);if(index===undefined)continue;
    const origin=asset.origin||(asset.kind==='generated'?'assistant_generated':'unknown');
-   if(origin==='unknown'){if(index>=latest)ambiguous=true;continue;}
+   if(origin==='unknown'){latestUnknown=Math.max(latestUnknown,index);continue;}
    if(origin!=='assistant_generated')continue;
-   if(index>latest){latest=index;latestAssets=[asset];ambiguous=false;}else if(index===latest)latestAssets.push(asset);
+   if(index>latestGenerated){latestGenerated=index;latestAssets=[asset];}else if(index===latestGenerated)latestAssets.push(asset);
   }
+  const ambiguous=unmapped||(latestUnknown>=0&&latestUnknown>=latestGenerated);
   return{keys:ambiguous?[]:latestAssets.length?[latestAssets[latestAssets.length-1].key]:[],ambiguous};
  }
  function selectAssetKeys(snapshot,scope='all'){
