@@ -42,6 +42,7 @@ FILES={
  'file_second':('data.csv','text/csv',b'id,value\n1,99\n')}
 PDF=b'%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
 LIVE=b'live-cache-byte-proof-314159'
+FINAL=b'last-generated-file-proof-271828'
 def conversation(live=False):
     mapping={'root':{'id':'root','parent':None,'children':['n0'],'message':{'id':'system','author':{'role':'system'},'content':{'parts':['NOT_FOR_EXPORT_SECRET']}}}}
     for i in range(120):
@@ -51,6 +52,7 @@ def conversation(live=False):
     mapping['n2']['message']['metadata']['attachments']=[{'id':'file_image','name':'diagram.png','mime_type':'image/png','size':len(FILES['file_image'][2])}]
     mapping['n3']['message']['content']['parts'].append('[report.pdf](sandbox:/mnt/data/report.pdf)')
     mapping['n5']['message']['content']['parts'].append('[old.pdf](sandbox:/mnt/data/old.pdf)')
+    mapping['n7']['message']['content']['parts'].append('[final.txt](sandbox:/mnt/data/final.txt)')
     mapping['n6']['message']['metadata']['attachments']=[{'name':'unresolved.pdf'}]
     mapping['n4']['children'].append('alternative')
     mapping['alternative']={'id':'alternative','parent':'n4','children':[],'message':{'id':'m-alt','author':{'role':'assistant'},'content':{'parts':['Alternative conclusion, not the active path.']}}}
@@ -77,7 +79,7 @@ document.getElementById('generic').addEventListener('change',async e=>{
 SOURCE_HTML='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Synthetic source conversation</title></head><body><main><p>Selected synthetic research conversation. No account.</p></main></body></html>'
 
 async def main():
-    mode={'live':False,'request_count':0,'write_requests':[],'target_mode':'ready','target_draft':False}
+    mode={'live':False,'request_count':0,'write_requests':[],'sandbox_paths':[],'target_mode':'ready','target_draft':False}
     async def route_handler(route):
         request=route.request;u=urlparse(request.url);p=u.path
         if request.method not in ['GET','HEAD']:
@@ -95,7 +97,9 @@ async def main():
             if fid in FILES:return await route.fulfill(status=200,content_type=FILES[fid][1],body=FILES[fid][2])
         if '/download_from_sandbox' in p or '/interpreter/download' in p:
             path=parse_qs(u.query).get('sandbox_path',[''])[0]
+            mode['sandbox_paths'].append(path)
             if path=='/mnt/data/report.pdf':return await route.fulfill(content_type='application/pdf',headers={'Content-Disposition':'attachment; filename=report.pdf'},body=PDF)
+            if path=='/mnt/data/final.txt':return await route.fulfill(content_type='text/plain',body=FINAL)
             if path=='/mnt/data/live.txt':return await route.fulfill(content_type='text/plain',body=LIVE)
             return await route.fulfill(status=422,content_type='application/json',body='{"error":"fixture unavailable"}')
         if p=='/':return await route.fulfill(content_type='text/html',body=TARGET_HTML.replace('__DRAFT__','USER EXISTING DRAFT' if mode['target_draft'] else '').replace('__MODE__',json.dumps(mode['target_mode'])))
@@ -126,6 +130,8 @@ async def main():
             assert await workspace.locator('details.advanced').first.evaluate('(e)=>!e.open')
             assert await workspace.get_by_role('heading',name='把这段对话，带到新聊天').is_visible()
             assert await workspace.get_by_role('button',name='保存对话').is_visible()
+            assert await workspace.locator('#asset-scope').input_value()=='all'
+            assert await workspace.locator('#asset-scope').locator('option').count()==2
             for width in [320,360,1280]:
                 await workspace.set_viewport_size({'width':width,'height':900})
                 assert await workspace.evaluate('document.documentElement.scrollWidth<=window.innerWidth+2'),width
@@ -143,14 +149,14 @@ async def main():
             captures=await workspace.evaluate('TLStore.all("captures")');cap=captures[0];cid=cap['id']
             assert len(cap['snapshot']['messages'])==121 and cap['snapshot']['integrity']['state']=='valid' and cap['state']=='partial',cap
             assets=await workspace.evaluate('id=>TLStore.assets(id)',cid)
-            assert len(assets)==7,assets
-            saved=[a for a in assets if a['state']=='saved'];missing=[a for a in assets if a['state']!='saved']
-            assert len(saved)==5 and len(missing)==2,assets
+            assert len(assets)==8,assets
+            saved=[a for a in assets if a['state']=='saved'];missing=[a for a in assets if a['state'] not in ['saved','excluded']]
+            assert len(saved)==6 and len(missing)==2 and not [a for a in assets if a['state']=='excluded'],assets
             assert all(a['sha256'] and a['size']>0 for a in saved)
-            expected={hashlib.sha256(v[2]).hexdigest() for v in FILES.values()}|{hashlib.sha256(PDF).hexdigest()}
+            expected={hashlib.sha256(v[2]).hexdigest() for v in FILES.values()}|{hashlib.sha256(PDF).hexdigest(),hashlib.sha256(FINAL).hexdigest()}
             assert {a['sha256'] for a in saved}==expected
             assert 'synthetic-do-not-persist-token' not in json.dumps(cap) and 'NOT_FOR_EXPORT_SECRET' not in json.dumps(cap)
-            passed('capture_120_messages_all_accessible_branches_real_bytes_and_missing_states',{'saved':5,'unavailable':2})
+            passed('capture_120_messages_all_accessible_branches_real_bytes_and_missing_states',{'saved':6,'unavailable':2})
             await wait_async(workspace,'async()=>{const r=await chrome.runtime.sendMessage({type:"tl:sessions"});return r.ok&&!r.data.length&&!document.querySelector("#continue").hidden}',timeout=30000)
             assert await workspace.locator('#capture').is_hidden()
             assert await workspace.get_by_role('button',name='继续这段对话').is_visible()
@@ -203,11 +209,31 @@ async def main():
             before_requests=mode['request_count'];await source.evaluate('document.querySelector("main").append(document.createTextNode("after stop"))');await asyncio.sleep(13)
             assert mode['request_count']==before_requests;mode['live']=False
             passed('opt_in_live_generated_file_caching_and_explicit_stop')
+            scope_workspace=await ctx.new_page();await scope_workspace.goto('chrome-extension://'+extension+'/workspace/index.html');await scope_workspace.wait_for_function('typeof TLStore!=="undefined"')
+            await wait_async(scope_workspace,'()=>document.querySelector("#source").value!=="")
+            await scope_workspace.locator('#asset-scope').select_option('last_generated')
+            assert await scope_workspace.locator('#live').is_disabled()
+            rejected=await scope_workspace.evaluate('''async cid=>{const r=await chrome.runtime.sendMessage({type:'tl:sources'}),t=r.data.find(x=>x.url.endsWith('/'+cid));return await chrome.runtime.sendMessage({type:'tl:start',tabId:t.id,live:true,scope:'last_generated'});}''',CID)
+            assert rejected['ok'] is False and rejected['code']=='LIVE_CACHE_REQUIRES_ALL_SCOPE',rejected
+            await scope_workspace.locator('details.advanced summary').first.click();await scope_workspace.locator('#allow-media').uncheck()
+            await scope_workspace.set_viewport_size({'width':1280,'height':900});await scope_workspace.screenshot(path=str(OUT/'ux-home-last-generated-1280.png'),full_page=True)
+            before_paths=len(mode['sandbox_paths']);await scope_workspace.locator('#capture').click()
+            await wait_async(scope_workspace,'async()=>{const xs=await TLStore.all("captures"),c=xs.find(x=>x.saveScope==="last_generated");return c?.snapshot&&["ready","partial"].includes(c.state)}',timeout=90000)
+            scoped=await scope_workspace.evaluate('''async()=>{const c=(await TLStore.all('captures')).find(x=>x.saveScope==='last_generated'),assets=await TLStore.assets(c.id),out=await TLArchive.exportCapture(c.id),restored=await TLArchive.restore(out.blob),copy=await TLStore.get('captures',restored),copyAssets=await TLStore.assets(restored);return{capture:c,assets,manifest:out.manifest,restored:copy,restoredAssets:copyAssets};}''')
+            scoped_saved=[a for a in scoped['assets'] if a['state']=='saved'];scoped_excluded=[a for a in scoped['assets'] if a['state']=='excluded'];scoped_missing=[a for a in scoped['assets'] if a['state'] not in ['saved','excluded']]
+            assert scoped['capture']['state']=='ready' and len(scoped_saved)==1 and scoped_saved[0]['name']=='final.txt',scoped
+            assert len(scoped_excluded)==7 and not scoped_missing,scoped
+            assert set(mode['sandbox_paths'][before_paths:])=={'/mnt/data/final.txt'},mode['sandbox_paths'][before_paths:]
+            assert scoped['manifest']['state']=='ready' and scoped['manifest']['saveScope']=='last_generated',scoped['manifest']
+            assert scoped['restored']['state']=='ready' and scoped['restored']['saveScope']=='last_generated',scoped['restored']
+            assert len([a for a in scoped['restoredAssets'] if a['state']=='excluded'])==7
+            passed('last_generated_scope_saves_only_latest_active_branch_assistant_file_and_roundtrips_exclusions',{'saved':[a['name'] for a in scoped_saved],'excluded':len(scoped_excluded),'download_paths':mode['sandbox_paths'][before_paths:]})
+            await scope_workspace.close()
             await ctx.close();ctx,extension=await launch(pw,profile)
             source=await ctx.new_page();await source.goto(SOURCE)
             workspace=await ctx.new_page();await workspace.goto('chrome-extension://'+extension+'/workspace/index.html');await workspace.wait_for_function('typeof TLStore!=="undefined"')
             persisted=await workspace.evaluate('async id=>({capture:await TLStore.get("captures",id),assets:await TLStore.assets(id)})',cid)
-            assert persisted['capture']['snapshot']['title']==cap['snapshot']['title'] and len([a for a in persisted['assets'] if a['state']=='saved'])==5
+            assert persisted['capture']['snapshot']['title']==cap['snapshot']['title'] and len([a for a in persisted['assets'] if a['state']=='saved'])==6
             passed('browser_restart_preserves_snapshot_and_binary_blobs')
             async def handoff(target_mode='ready',draft=False):
                 mode['target_mode']=target_mode;mode['target_draft']=draft
