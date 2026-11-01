@@ -66,28 +66,32 @@
    if(!e.getClientRects().length)continue;const raw=e.getAttribute('download')||e.getAttribute('data-filename')||e.textContent||'',name=C.safeName(raw.trim());
    if(!/\.[a-z0-9]{1,10}$/i.test(name)||known.has(name.toLowerCase()))continue;
    known.add(name.toLowerCase());model.integrity.state='partial';model.integrity.issues.push({code:'VISIBLE_ATTACHMENT_NOT_IN_API',name});
-   model.assets.push({key:JSON.stringify(['visible-unmatched',name]),messageId:'visible-unmatched',nodeId:'visible-unmatched',name,mime:'application/octet-stream',kind:'upload',ref:{scheme:'unsupported'},expectedSize:null,state:'unavailable',reason:'VISIBLE_ATTACHMENT_NOT_IN_API'});
+   const role=e.closest('[data-message-author-role]')?.getAttribute('data-message-author-role')||'unknown',origin=role==='assistant'?'assistant_generated':role==='user'?'user_uploaded':'unknown';
+   model.assets.push({key:JSON.stringify(['visible-unmatched',name]),messageId:'visible-unmatched',nodeId:'visible-unmatched',name,mime:'application/octet-stream',kind:'upload',origin,authorRole:role,ref:{scheme:'unsupported'},expectedSize:null,state:'unavailable',reason:'VISIBLE_ATTACHMENT_NOT_IN_API'});
   }
  }
  async function cycle(run){
   if(run.busy||run.stopped)return;run.busy=true;run.dirty=false;
   try{
-   sameSource(run);status(run,run.live?'研线：正在缓存本对话；不会读取其他对话。':'研线：正在读取本对话和附件。');
+   sameSource(run);status(run,run.scope==='last_generated'?'研线：正在查找当前分支最后生成的文件。':'研线：正在读取本对话和可识别文件。');
    const session=await json(run,'/api/auth/session');C.check(typeof session.accessToken==='string'&&session.accessToken,'CHATGPT_LOGIN_REQUIRED');const token=session.accessToken,account=session.account?.id||session.activeAccount?.id||session.account_id||null;
    const raw=await json(run,'/backend-api/conversation/'+encodeURIComponent(run.source.conversationId),token,account);sameSource(run);
-   const model=C.normalizeConversation(raw,location.href);reconcileVisibleAttachments(model);const persisted=C.persistedSnapshot(model);C.check(JSON.stringify(persisted).length<=16*1024*1024,'SNAPSHOT_MESSAGE_SIZE_LIMIT');
+   const model=C.normalizeConversation(raw,location.href);reconcileVisibleAttachments(model);const selectedKeys=new Set(C.selectAssetKeys(model,run.scope));
+   for(const a of model.assets)if(!selectedKeys.has(a.key)){a.state='excluded';a.reason='OUT_OF_SAVE_SCOPE';}
+   const selectedAssets=model.assets.filter(a=>a.state!=='excluded'),skipped=model.assets.length-selectedAssets.length,persisted=C.persistedSnapshot(model);C.check(JSON.stringify(persisted).length<=16*1024*1024,'SNAPSHOT_MESSAGE_SIZE_LIMIT');
    const saved=new Set((await message('tl:snapshot',{snapshot:persisted},run.nonce)).savedKeys);let done=0,missing=0;
    for(const a of model.assets){
-    sameSource(run);if(saved.has(a.key)){done++;continue;}status(run,'研线：保存文件 '+(done+missing+1)+' / '+model.assets.length+'。');
+    if(a.state==='excluded')continue;sameSource(run);if(saved.has(a.key)){done++;continue;}status(run,'研线：保存文件 '+(done+missing+1)+' / '+selectedAssets.length+'。');
     try{await download(run,a,token,account);done++;}catch(e){const reason=code(e);await message('tl:assetFail',{key:a.key,code:reason},run.nonce);missing++;if(reason==='LOCAL_STORAGE_FULL')throw e;}
    }
-   await message('tl:finish',{},run.nonce);status(run.live?run:null,'研线：已保存 '+done+' 个文件；'+missing+' 个未取得字节。'+(run.live?'实时缓存已开启。':'请在本地档案中核对完整性。'));
+   await message('tl:finish',{},run.nonce);const noGenerated=run.scope==='last_generated'&&selectedAssets.length===0;status(run.live?run:null,'研线：已保存 '+done+' 个文件；'+missing+' 个未取得；'+skipped+' 个按范围跳过。'+(noGenerated?'当前分支未识别到助手生成文件，只保存了对话正文。':run.live?'实时缓存已开启。':'请在本地档案中核对完整性。'));
    if(!run.live){run.stopped=true;if(active===run)active=null;}
   }catch(e){const reason=code(e);await message('tl:captureFailed',{code:reason},run.nonce).catch(()=>{});stop(run);status(null,'研线：保存中止（'+reason+'）。已保存的字节保留，未确认的结果不自动重试。');}
   finally{run.busy=false;}
  }
- function start(nonce,live){
-  if(active)stop(active);const run={nonce,source:C.chatUrl(location.href),live:!!live,busy:false,stopped:false,dirty:true};active=run;
+ function start(nonce,live,scope='all'){
+  C.check(['all','last_generated'].includes(scope),'INVALID_SAVE_SCOPE');C.check(!(live&&scope==='last_generated'),'LIVE_CACHE_REQUIRES_ALL_SCOPE');
+  if(active)stop(active);const run={nonce,source:C.chatUrl(location.href),live:!!live,scope,busy:false,stopped:false,dirty:true};active=run;
   if(run.live){
    run.observer=new MutationObserver(records=>{if(records.some(r=>{const e=r.target instanceof Element?r.target:r.target.parentElement;return!e?.closest('#threadline-cache-notice');}))run.dirty=true;});
    run.observer.observe(document.body||document.documentElement,{childList:true,subtree:true});
@@ -100,7 +104,7 @@
  }
  api.runtime.onMessage.addListener((msg,sender,respond)=>{
   if(sender.id!==api.runtime.id)return false;
-  if(msg?.type==='tl:capture'){try{C.check(typeof msg.nonce==='string'&&msg.nonce.length>20,'INVALID_CAPTURE_NONCE');start(msg.nonce,msg.live);respond({ok:true});}catch(e){respond({ok:false,code:code(e)});}return false;}
+  if(msg?.type==='tl:capture'){try{C.check(typeof msg.nonce==='string'&&msg.nonce.length>20,'INVALID_CAPTURE_NONCE');start(msg.nonce,msg.live,msg.scope||'all');respond({ok:true});}catch(e){respond({ok:false,code:code(e)});}return false;}
   if(msg?.type==='tl:stopCapture'){if(active?.nonce===msg.nonce)stop(active);respond({ok:true});return false;}return false;
  });
 })();
