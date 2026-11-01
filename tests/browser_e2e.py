@@ -53,6 +53,8 @@ def conversation(live=False):
     mapping['n3']['message']['content']['parts'].append('[report.pdf](sandbox:/mnt/data/report.pdf)')
     mapping['n5']['message']['content']['parts'].append('[old.pdf](sandbox:/mnt/data/old.pdf)')
     mapping['n7']['message']['content']['parts'].append('[final.txt](sandbox:/mnt/data/final.txt)')
+    mapping['n9']['message']['author']['role']='tool'
+    mapping['n9']['message']['metadata']['attachments']=[{'id':'file_tool_unknown','name':'tool-output.txt','mime_type':'text/plain'}]
     mapping['n6']['message']['metadata']['attachments']=[{'name':'unresolved.pdf'}]
     mapping['n4']['children'].append('alternative')
     mapping['alternative']={'id':'alternative','parent':'n4','children':[],'message':{'id':'m-alt','author':{'role':'assistant'},'content':{'parts':['Alternative conclusion, not the active path.']}}}
@@ -149,14 +151,14 @@ async def main():
             captures=await workspace.evaluate('TLStore.all("captures")');cap=captures[0];cid=cap['id']
             assert len(cap['snapshot']['messages'])==121 and cap['snapshot']['integrity']['state']=='valid' and cap['state']=='partial',cap
             assets=await workspace.evaluate('id=>TLStore.assets(id)',cid)
-            assert len(assets)==8,assets
+            assert len(assets)==9,assets
             saved=[a for a in assets if a['state']=='saved'];missing=[a for a in assets if a['state'] not in ['saved','excluded']]
-            assert len(saved)==6 and len(missing)==2 and not [a for a in assets if a['state']=='excluded'],assets
+            assert len(saved)==6 and len(missing)==3 and not [a for a in assets if a['state']=='excluded'],assets
             assert all(a['sha256'] and a['size']>0 for a in saved)
             expected={hashlib.sha256(v[2]).hexdigest() for v in FILES.values()}|{hashlib.sha256(PDF).hexdigest(),hashlib.sha256(FINAL).hexdigest()}
             assert {a['sha256'] for a in saved}==expected
             assert 'synthetic-do-not-persist-token' not in json.dumps(cap) and 'NOT_FOR_EXPORT_SECRET' not in json.dumps(cap)
-            passed('capture_120_messages_all_accessible_branches_real_bytes_and_missing_states',{'saved':6,'unavailable':2})
+            passed('capture_120_messages_all_accessible_branches_real_bytes_and_missing_states',{'saved':6,'unavailable':3})
             await wait_async(workspace,'async()=>{const r=await chrome.runtime.sendMessage({type:"tl:sessions"});return r.ok&&!r.data.length&&!document.querySelector("#continue").hidden}',timeout=30000)
             assert await workspace.locator('#capture').is_hidden()
             assert await workspace.get_by_role('button',name='继续这段对话').is_visible()
@@ -221,14 +223,18 @@ async def main():
             await wait_async(scope_workspace,'async()=>{const xs=await TLStore.all("captures"),c=xs.find(x=>x.saveScope==="last_generated");return c?.snapshot&&["ready","partial"].includes(c.state)}',timeout=90000)
             scoped=await scope_workspace.evaluate('''async()=>{const c=(await TLStore.all('captures')).find(x=>x.saveScope==='last_generated'),assets=await TLStore.assets(c.id),out=await TLArchive.exportCapture(c.id),restored=await TLArchive.restore(out.blob),copy=await TLStore.get('captures',restored),copyAssets=await TLStore.assets(restored),official=await TLArchive.buildZip([{name:'final.txt',blob:new Blob(['last-generated-file-proof-271828'],{type:'text/plain'})}]),comparison=await TLArchive.compareOfficial(c.id,official);return{capture:c,assets,manifest:out.manifest,restored:copy,restoredAssets:copyAssets,comparison};}''')
             scoped_saved=[a for a in scoped['assets'] if a['state']=='saved'];scoped_excluded=[a for a in scoped['assets'] if a['state']=='excluded'];scoped_missing=[a for a in scoped['assets'] if a['state'] not in ['saved','excluded']]
-            assert scoped['capture']['state']=='ready' and len(scoped_saved)==1 and scoped_saved[0]['name']=='final.txt',scoped
-            assert len(scoped_excluded)==7 and not scoped_missing,scoped
+            assert scoped['capture']['state']=='partial' and len(scoped_saved)==1 and scoped_saved[0]['name']=='final.txt',scoped
+            assert len(scoped_excluded)==7 and len(scoped_missing)==1,scoped
+            assert scoped_missing[0]['name']=='tool-output.txt' and scoped_missing[0]['reason']=='SAVE_SCOPE_SOURCE_UNRESOLVED',scoped
             assert set(mode['sandbox_paths'][before_paths:])=={'/mnt/data/final.txt'},mode['sandbox_paths'][before_paths:]
-            assert scoped['manifest']['state']=='ready' and scoped['manifest']['saveScope']=='last_generated',scoped['manifest']
-            assert scoped['restored']['state']=='ready' and scoped['restored']['saveScope']=='last_generated',scoped['restored']
+            assert scoped['manifest']['state']=='partial' and scoped['manifest']['saveScope']=='last_generated',scoped['manifest']
+            assert scoped['restored']['state']=='partial' and scoped['restored']['saveScope']=='last_generated',scoped['restored']
             assert len([a for a in scoped['restoredAssets'] if a['state']=='excluded'])==7
             assert sum(x['result']=='bytes_match' for x in scoped['comparison']['records'])==1 and sum(x['result']=='excluded_by_save_scope' for x in scoped['comparison']['records'])==7,scoped['comparison']
-            passed('last_generated_scope_saves_only_latest_active_branch_assistant_file_and_roundtrips_exclusions',{'saved':[a['name'] for a in scoped_saved],'excluded':len(scoped_excluded),'download_paths':mode['sandbox_paths'][before_paths:]})
+            assert sum(x['result']=='not_saved_locally' for x in scoped['comparison']['records'])==1,scoped['comparison']
+            invalid_scope=await scope_workspace.evaluate('''async id=>{const out=await TLArchive.exportCapture(id),entries=await TLArchive.readZip(out.blob),manifest=JSON.parse(await (await entries.get('manifest.json').blob()).text()),target=manifest.files.find(x=>x.name==='old.pdf'),badBlob=new Blob(['wrong-scope-old-file']),sha=await TLCore.hashBlob(badBlob);Object.assign(target,{state:'saved',sha256:sha,size:badBlob.size,path:'assets/'+sha+'.bin',reason:null});const packed=[];for(const e of entries.values())if(e.name!=='manifest.json')packed.push({name:e.name,blob:await e.blob()});packed.push({name:'assets/'+sha+'.bin',blob:badBlob},{name:'manifest.json',content:JSON.stringify(manifest)});let blocked='';try{await TLArchive.restore(await TLArchive.buildZip(packed));}catch(e){blocked=e.message;}return blocked;}''',scoped['capture']['id'])
+            assert invalid_scope=='INVALID_LAST_GENERATED_SCOPE',invalid_scope
+            passed('last_generated_scope_saves_only_latest_active_branch_assistant_file_and_roundtrips_exclusions',{'saved':[a['name'] for a in scoped_saved],'excluded':len(scoped_excluded),'unresolved':scoped_missing[0]['name'],'download_paths':mode['sandbox_paths'][before_paths:]})
             await scope_workspace.close()
             await ctx.close();ctx,extension=await launch(pw,profile)
             source=await ctx.new_page();await source.goto(SOURCE)
