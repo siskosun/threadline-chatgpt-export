@@ -28,10 +28,15 @@
  }
  async function renderRunning(){
   const active=await call('tl:sessions'),box=$('running');box.replaceChildren();box.className=active.length?'list':'empty';
-  if(!active.length){box.textContent='没有进行中的采集。';return;}
-  for(const r of active){const c=await S.get('captures',r.captureId),el=node('div',null,'panel');el.append(node('strong',c?.snapshot?.title||c?.title||'读取中'),node('p',r.live?'单对话实时缓存已开启':'单次采集进行中','hint'));
-   const rows=await S.assets(r.captureId);el.append(node('p','文件已保存 '+rows.filter(a=>a.state==='saved').length+' / '+rows.length));
-   const actions=node('div',null,'actions');actions.append(button('查看本地结果',async()=>{await choose(r.captureId);switchView('archive');}),button('停止采集',async()=>{await call('tl:stop',{captureId:r.captureId});await renderRunning();status('采集已停止，已写入的文件保留。');}));el.append(actions);box.append(el);}
+  if(!active.length){
+   const c=selectedId&&await S.get('captures',selectedId);
+   if(c?.snapshot){$('capture').hidden=true;$('continue').hidden=false;const rows=await S.assets(selectedId);box.textContent='已保存到本地 · '+c.snapshot.messages.length+' 条消息 · '+rows.filter(a=>a.state==='saved').length+' 个文件。';return;}
+   $('capture').hidden=false;$('continue').hidden=true;box.textContent='选择一段对话开始保存。';return;
+  }
+  $('capture').hidden=true;$('continue').hidden=true;
+  for(const r of active){const c=await S.get('captures',r.captureId),el=node('div',null,'panel');el.append(node('strong',c?.snapshot?.title||c?.title||'正在读取对话'),node('p',r.live?'实时缓存已开启':'正在保存','hint'));
+   const rows=await S.assets(r.captureId);el.append(node('p','已保存 '+rows.filter(a=>a.state==='saved').length+' / '+rows.length+' 个文件'));
+   const actions=node('div',null,'actions');actions.append(button('停止',async()=>{await call('tl:stop',{captureId:r.captureId});await renderRunning();status('已停止。已保存的内容保留。');}));el.append(actions);box.append(el);}
  }
  async function refreshArchives(){
   const list=$('archives'),q=$('search').value.trim().toLowerCase(),rows=(await S.all('captures')).sort((a,b)=>String(b.updatedAt).localeCompare(String(a.updatedAt)));
@@ -116,7 +121,7 @@
   await download(await A.buildZip(entries),'threadline-handoff.zip');status('接续包已生成。请解压后上传实际文件，不要假设 ChatGPT 一定能读取 ZIP 内的全部内容。');
  }
  for(const b of document.querySelectorAll('[data-view]'))b.onclick=e=>{e.preventDefault();switchView(b.dataset.view);};
- $('refresh-source').onclick=()=>guard(sources);$('capture').onclick=()=>guard(start);$('refresh').onclick=()=>guard(async()=>{await refreshArchives();if(selectedId)await renderDetail();});
+ $('refresh-source').onclick=()=>guard(sources);$('capture').onclick=()=>guard(start);$('source').onchange=()=>{selectedId=null;$('capture').hidden=false;$('continue').hidden=true;guard(renderRunning);};$('continue').onclick=()=>guard(async()=>{await choose(selectedId);switchView('handoff');});$('refresh').onclick=()=>guard(async()=>{await refreshArchives();if(selectedId)await renderDetail();});
  $('search').oninput=()=>guard(refreshArchives);$('prepare').onclick=()=>guard(prepare);$('instructions').oninput=invalidate;$('batch-limit').onchange=invalidate;
  $('restore').onchange=()=>guard(async()=>{const f=$('restore').files?.[0];if(!f)return;status('校验档案结构、CRC 和文件哈希。校验全部通过后才写入档案。');const id=await A.restore(f);$('restore').value='';await choose(id);switchView('archive');status('档案已恢复。保留原有缺失状态，不会因恢复而变成完整。');await quota();});
  $('open-target').onclick=()=>guard(async()=>{C.check(planFingerprint===fingerprint(),'REGENERATE_HANDOFF_AFTER_CHANGES');const h=await call('tl:openHandoff',{id:handoffId});await renderHandoffState();status('新聊天已打开。请核对文件，再由你手动发送。');});
