@@ -51,6 +51,7 @@ test('last-generated scope selects the latest assistant file on the active branc
  assert.equal(C.selectAssetKeys(s,'last_generated').includes(byName.get('inactive.pdf').key),false);
  assert.throws(()=>C.selectAssetKeys(s,'unknown'),/INVALID_SAVE_SCOPE/);
 });
+test('last-generated scope does not substitute a user upload when no assistant output exists',()=>{const f=fixture(2);f.mapping.n0.message.metadata={attachments:[{id:'file_user_only',name:'user-only.pdf'}]};const s=C.normalizeConversation(f,source);assert.equal(s.assets[0].origin,'user_uploaded');assert.deepEqual(C.selectAssetKeys(s,'last_generated'),[]);});
 test('named attachment without a downloadable pointer is explicitly unavailable',()=>{
  const f=fixture(2);f.mapping.n0.message.metadata={attachments:[{name:'report.pdf'}]};const s=C.normalizeConversation(f,source);assert.equal(s.assets.length,1);assert.equal(s.assets[0].state,'unavailable');assert.throws(()=>C.handoff(s,s.assets,[s.assets[0].key]),/SELECTED_FILE_NOT_SAVED/);
 });
