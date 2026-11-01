@@ -1,122 +1,91 @@
 /* ThreadLine MV3 service worker. No model API, automatic Send, or source mutation. */
 importScripts('tl-core.js','tl-store.js');
-const C=globalThis.TLCore,S=globalThis.TLStore;
-const api=chrome,runs=new Map();
-function errorCode(e){if(e?.name==='QuotaExceededError')return 'LOCAL_STORAGE_FULL';if(e?.name==='AbortError')return 'CANCELLED_OR_TIMEOUT';return /^[A-Z][A-Z0-9_]{2,100}$/.test(String(e?.message||''))?e.message:'OPERATION_FAILED';}
+const C=globalThis.TLCore,S=globalThis.TLStore,api=chrome,runs=new Map();
+function errorCode(e){if(e?.name==='QuotaExceededError')return'LOCAL_STORAGE_FULL';if(e?.name==='AbortError')return'CANCELLED_OR_TIMEOUT';return/^[A-Z][A-Z0-9_]{2,100}$/.test(String(e?.message||''))?e.message:'OPERATION_FAILED';}
 const trusted=sender=>sender?.id===api.runtime.id;
 function workspace(sender){C.check(trusted(sender)&&String(sender.url||'').startsWith(api.runtime.getURL('workspace/')),'WORKSPACE_ONLY');}
 async function keepRuns(){await api.storage.session.set({tlRuns:[...runs.values()].map(({controller,...r})=>r)});}
+let bootError=null;
 const boot=(async()=>{
  const old=(await api.storage.session.get('tlRuns')).tlRuns||[];
  for(const r of old){const c=await S.get('captures',r.captureId);if(c)await S.set('captures',{...c,state:c.state==='capturing'?'interrupted':c.state,live:false,lastError:'WORKER_RESTARTED_RETRY_EXPLICITLY'});}
  await S.recover([]);await api.storage.session.set({tlRuns:[]});
-})().catch(()=>{});
+})().catch(e=>{bootError=errorCode(e);});
 async function sourceRun(msg,sender){
- C.check(trusted(sender)&&Number.isInteger(sender.tab?.id),'SOURCE_TAB_REQUIRED');
- const run=runs.get(msg.nonce);C.check(run&&!run.cancelled&&run.tabId===sender.tab.id,'CAPTURE_SESSION_NOT_FOUND');
- const source=C.chatUrl(sender.url||sender.tab.url);
- C.check(source.conversationId===run.source.conversationId&&source.origin===run.source.origin,'SOURCE_CONVERSATION_CHANGED');
- if(run.documentId)C.check(sender.documentId===run.documentId,'SOURCE_DOCUMENT_CHANGED');
- else {C.check(sender.documentId,'DOCUMENT_ID_UNAVAILABLE');run.documentId=sender.documentId;await keepRuns();}
- const tab=await api.tabs.get(run.tabId);C.check(C.chatUrl(tab.url).conversationId===run.source.conversationId,'SOURCE_NAVIGATED');
- return run;
+ C.check(trusted(sender)&&Number.isInteger(sender.tab?.id),'SOURCE_TAB_REQUIRED');const run=runs.get(msg.nonce);C.check(run&&!run.cancelled&&run.tabId===sender.tab.id,'CAPTURE_SESSION_NOT_FOUND');
+ const source=C.chatUrl(sender.url||sender.tab.url);C.check(source.conversationId===run.source.conversationId&&source.origin===run.source.origin,'SOURCE_CONVERSATION_CHANGED');
+ if(run.documentId)C.check(sender.documentId===run.documentId,'SOURCE_DOCUMENT_CHANGED');else{C.check(sender.documentId,'DOCUMENT_ID_UNAVAILABLE');run.documentId=sender.documentId;await keepRuns();}
+ const now=C.chatUrl((await api.tabs.get(run.tabId)).url);C.check(now.conversationId===run.source.conversationId&&now.origin===run.source.origin,'SOURCE_NAVIGATED');return run;
 }
 async function sendToSource(tabId,message){
- try{return await api.tabs.sendMessage(tabId,message);}
- catch{
-  await api.scripting.executeScript({target:{tabId},files:['src/tl-core.js','src/tl-capture.js','src/tl-inject.js']});
-  return api.tabs.sendMessage(tabId,message);
- }
+ try{return await api.tabs.sendMessage(tabId,message);}catch{await api.scripting.executeScript({target:{tabId},files:['src/tl-core.js','src/tl-capture.js','src/tl-inject.js']});return api.tabs.sendMessage(tabId,message);}
 }
 async function startCapture(msg){
- C.check(Number.isInteger(msg.tabId),'INVALID_TAB_ID');
- C.check(![...runs.values()].some(r=>r.tabId===msg.tabId),'SOURCE_ALREADY_RUNNING');
- const tab=await api.tabs.get(msg.tabId),source=C.chatUrl(tab.url),captureId=msg.captureId||C.id();
- const previous=await S.get('captures',captureId);
- if(previous)C.check(previous.snapshot?.source?.conversationId===source.conversationId&&previous.snapshot?.source?.origin===source.origin,'CAPTURE_SOURCE_CHANGED');
+ C.check(Number.isInteger(msg.tabId),'INVALID_TAB_ID');C.check(![...runs.values()].some(r=>r.tabId===msg.tabId),'SOURCE_ALREADY_RUNNING');
+ const tab=await api.tabs.get(msg.tabId),source=C.chatUrl(tab.url),captureId=msg.captureId||C.id(),previous=await S.get('captures',captureId);
+ if(previous){const p=previous.snapshot?.source||previous.source;C.check(p?.conversationId===source.conversationId&&p.origin===source.origin,'CAPTURE_SOURCE_CHANGED');}
  else await S.set('captures',{id:captureId,title:C.scrubText(tab.title||'读取对话中'),source,snapshot:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),state:'capturing',live:!!msg.live});
- const nonce=C.id(),run={nonce,tabId:tab.id,source,captureId,live:!!msg.live,phase:'reading',documentId:null,cancelled:false};
- runs.set(nonce,run);await keepRuns();
- try{await sendToSource(tab.id,{type:'tl:capture',nonce,live:run.live});}
+ const nonce=C.id(),run={nonce,tabId:tab.id,source,captureId,live:!!msg.live,phase:'reading',documentId:null,cancelled:false};runs.set(nonce,run);await keepRuns();
+ try{const response=await sendToSource(tab.id,{type:'tl:capture',nonce,live:run.live});C.check(response?.ok,'CHATGPT_PAGE_NOT_READY');}
  catch(e){runs.delete(nonce);await keepRuns();const c=await S.get('captures',captureId);await S.set('captures',{...c,state:'error',live:false,lastError:errorCode(e)});throw new Error('CHATGPT_PAGE_NOT_READY');}
  return{captureId};
 }
 async function stopCapture(captureId){
- for(const [nonce,r] of runs)if(r.captureId===captureId){r.cancelled=true;r.controller?.abort();runs.delete(nonce);await api.tabs.sendMessage(r.tabId,{type:'tl:stopCapture',nonce}).catch(()=>{});}
- await keepRuns();const c=await S.get('captures',captureId);
- if(c){for(const a of await S.assets(captureId))if(a.state==='downloading')await S.failAsset(captureId,a.key,'CANCELLED_BY_USER');await S.set('captures',{...c,state:c.state==='capturing'?'cancelled':c.state,live:false});}
+ for(const[nonce,r]of runs)if(r.captureId===captureId){r.cancelled=true;r.controller?.abort();runs.delete(nonce);await api.tabs.sendMessage(r.tabId,{type:'tl:stopCapture',nonce}).catch(()=>{});}
+ await keepRuns();const c=await S.get('captures',captureId);if(c){for(const a of await S.assets(captureId))if(a.state==='downloading')await S.failAsset(captureId,a.key,'CANCELLED_BY_USER');await S.set('captures',{...c,state:c.state==='capturing'?'cancelled':c.state,live:false});}
 }
 async function externalDownload(run,msg){
- const asset=await S.get('assets',[run.captureId,msg.key]);C.check(asset&&asset.state!=='saved','INVALID_DOWNLOAD_ASSET');
- const target=C.mediaUrl(msg.url);C.check(await api.permissions.contains({origins:[target.origin+'/*']}),'MEDIA_PERMISSION_REQUIRED');
+ const asset=await S.get('assets',[run.captureId,msg.key]);C.check(asset&&asset.state!=='saved','INVALID_DOWNLOAD_ASSET');const target=C.mediaUrl(msg.url);C.check(await api.permissions.contains({origins:[target.origin+'/*']}),'MEDIA_PERMISSION_REQUIRED');
  const controller=new AbortController();run.controller=controller;const timer=setTimeout(()=>controller.abort(),60000);
  try{
-  const r=await fetch(target.href,{method:'GET',credentials:'omit',referrerPolicy:'no-referrer',redirect:'error',cache:'no-store',signal:controller.signal});
-  C.check(r.ok,'HTTP_'+r.status);C.check(r.body,'NO_DOWNLOAD_BODY');
-  const estimate=await navigator.storage.estimate(),declared=Number(r.headers.get('content-length')||0);
-  if(estimate.quota&&declared)C.check(declared<Math.max(0,estimate.quota-(estimate.usage||0)),'LOCAL_STORAGE_FULL');
+  const r=await fetch(target.href,{method:'GET',credentials:'omit',referrerPolicy:'no-referrer',redirect:'error',cache:'no-store',signal:controller.signal});C.check(r.ok,'HTTP_'+r.status);C.check(r.body,'NO_DOWNLOAD_BODY');
+  const estimate=await navigator.storage.estimate(),declared=Number(r.headers.get('content-length')||0);if(estimate.quota&&declared)C.check(declared<Math.max(0,estimate.quota-(estimate.usage||0)),'LOCAL_STORAGE_FULL');
   await S.beginAsset(run.captureId,msg.key);const reader=r.body.getReader();let seq=0,total=0;
   try{while(true){C.check(!run.cancelled&&runs.has(run.nonce),'CANCELLED_BY_USER');const x=await reader.read();if(x.done)break;for(let i=0;i<x.value.length;i+=262144){const part=x.value.subarray(i,i+262144);await S.chunk(run.captureId,msg.key,seq++,part);total+=part.length;}}}catch(e){await reader.cancel().catch(()=>{});throw e;}finally{reader.releaseLock();}
-  if(declared&&!(r.headers.get('content-encoding')))C.check(total===declared,'DOWNLOAD_SIZE_MISMATCH');
-  return await S.finishAsset(run.captureId,msg.key,r.headers.get('content-type'));
- }catch(e){await S.failAsset(run.captureId,msg.key,errorCode(e));throw e;}
- finally{clearTimeout(timer);delete run.controller;}
+  if(declared&&!r.headers.get('content-encoding'))C.check(total===declared,'DOWNLOAD_SIZE_MISMATCH');return await S.finishAsset(run.captureId,msg.key,r.headers.get('content-type'));
+ }catch(e){await S.failAsset(run.captureId,msg.key,errorCode(e));throw e;}finally{clearTimeout(timer);delete run.controller;}
 }
 async function prepareHandoff(msg){
- const c=await S.get('captures',msg.captureId);C.check(c?.snapshot,'CAPTURE_NOT_READY');
- C.check(!['capturing','error'].includes(c.state),'CAPTURE_NOT_READY');
- const rows=await S.assets(c.id),plan=C.handoff(c.snapshot,rows,Array.isArray(msg.keys)?msg.keys:[],msg.instructions||'',msg.batchLimit||10);
- const files=[];
+ const c=await S.get('captures',msg.captureId);C.check(c?.snapshot,'CAPTURE_NOT_READY');C.check(!['capturing','error'].includes(c.state),'CAPTURE_NOT_READY');
+ const rows=await S.assets(c.id),plan=C.handoff(c.snapshot,rows,Array.isArray(msg.keys)?msg.keys:[],msg.instructions||'',msg.batchLimit||10),files=[],names=new Set(['handoff_index.md']);
  for(const f of plan.files){
-  if(f.kind==='asset'){const b=await S.verifiedBlob(f.sha256);files.push({...f,size:b.size});}
-  else {const blob=new Blob([f.text],{type:f.mime}),info=await S.putBlob(blob);files.push({kind:'history',name:f.name,mime:f.mime,...info});}
+  const base=C.safeName(f.name);let uploadName=base,sequence=2;while(names.has(uploadName.toLowerCase()))uploadName=sequence+++'_'+base;names.add(uploadName.toLowerCase());
+  if(f.kind==='asset'){const b=await S.verifiedBlob(f.sha256);files.push({...f,uploadName,size:b.size});}
+  else{const blob=new Blob([f.text],{type:f.mime}),info=await S.putBlob(blob);files.push({kind:'history',name:f.name,uploadName,mime:f.mime,...info});}
  }
- const batchIndices=[];for(let i=0;i<files.length;i+=plan.batchLimit)batchIndices.push(files.slice(i,i+plan.batchLimit).map((_,j)=>i+j));
- const h={id:C.id(),captureId:c.id,createdAt:new Date().toISOString(),state:'prepared',prompt:plan.prompt,files,batches:batchIndices,missing:plan.missing};
- await S.set('handoffs',h);return h;
+ const index=['# 接续文件索引','','仅下列文件已准备；网页是否上传成功需另行核对。',...files.map(f=>'- 上传名：'+f.uploadName+'；原名：'+f.name+'；SHA-256：'+f.sha256),...plan.missing.map(f=>'- 未取得文件：'+f.name+'（'+f.reason+'）')].join('\n');
+ const indexInfo=await S.putBlob(new Blob([index],{type:'text/markdown'}));files.unshift({kind:'index',name:'handoff_index.md',uploadName:'handoff_index.md',mime:'text/markdown',...indexInfo});
+ const batches=[];for(let i=0;i<files.length;i+=plan.batchLimit)batches.push(files.slice(i,i+plan.batchLimit).map((_,j)=>i+j));
+ const prompt=plan.prompt.replace(/准备批次：\d+/,'准备批次：'+batches.length)+'\n\n请先查看 handoff_index.md；同名原文件已分配不同上传名，必须按索引及哈希区分。'+(batches.length>1?' 首批不是全部材料，剩余批次需要用户手动补充。':'');
+ const h={id:C.id(),captureId:c.id,createdAt:new Date().toISOString(),state:'prepared',prompt,files,batches,missing:plan.missing};await S.set('handoffs',h);return h;
 }
-async function announce(tabId){
- const h=(await S.all('handoffs')).find(h=>h.targetTabId===tabId&&h.state==='target_opened');if(!h)return;
- await api.tabs.sendMessage(tabId,{type:'tl:handoffAvailable'}).catch(()=>{});
-}
+async function announce(tabId){const h=(await S.all('handoffs')).find(h=>h.targetTabId===tabId&&h.state==='target_opened');if(h)await api.tabs.sendMessage(tabId,{type:'tl:handoffAvailable'}).catch(()=>{});}
 async function openHandoff(id){
- const h=await S.get('handoffs',id);C.check(h?.state==='prepared','HANDOFF_ALREADY_OPENED');
- const win=await api.windows.create({url:'https://chatgpt.com/',focused:true,type:'normal'}),target=win.tabs?.[0];
- C.check(Number.isInteger(target?.id),'NEW_WINDOW_FAILED');
- const updated={...h,state:'target_opened',targetTabId:target.id,targetWindowId:win.id,targetDocumentId:null};await S.set('handoffs',updated);
- if(target.status==='complete')await announce(target.id);return updated;
+ const h=await S.get('handoffs',id);C.check(h?.state==='prepared','HANDOFF_ALREADY_OPENED');const win=await api.windows.create({url:'https://chatgpt.com/',focused:true,type:'normal'}),target=win.tabs?.[0];C.check(Number.isInteger(target?.id),'NEW_WINDOW_FAILED');
+ const updated={...h,state:'target_opened',targetTabId:target.id,targetWindowId:win.id,targetDocumentId:null};await S.set('handoffs',updated);if(target.status==='complete')await announce(target.id);return updated;
 }
 async function targetHandoff(msg,sender){
- C.check(trusted(sender)&&Number.isInteger(sender.tab?.id)&&sender.documentId,'TARGET_TAB_REQUIRED');
- const h=await S.get('handoffs',msg.id);C.check(h&&h.targetTabId===sender.tab.id&&h.targetDocumentId===sender.documentId,'HANDOFF_TARGET_MISMATCH');
- C.chatUrl(sender.url||sender.tab.url,{target:true});C.chatUrl((await api.tabs.get(sender.tab.id)).url,{target:true});
- return h;
+ C.check(trusted(sender)&&Number.isInteger(sender.tab?.id)&&sender.documentId,'TARGET_TAB_REQUIRED');const h=await S.get('handoffs',msg.id);C.check(h&&h.targetTabId===sender.tab.id&&h.targetDocumentId===sender.documentId,'HANDOFF_TARGET_MISMATCH');C.chatUrl(sender.url||sender.tab.url,{target:true});C.chatUrl((await api.tabs.get(sender.tab.id)).url,{target:true});return h;
 }
 let claimQueue=Promise.resolve();
 async function claim(sender){
  const operation=claimQueue.then(async()=>{
-  C.check(trusted(sender)&&Number.isInteger(sender.tab?.id)&&sender.documentId,'TARGET_TAB_REQUIRED');
-  C.chatUrl(sender.url||sender.tab.url,{target:true});
+  C.check(trusted(sender)&&Number.isInteger(sender.tab?.id)&&sender.documentId,'TARGET_TAB_REQUIRED');C.chatUrl(sender.url||sender.tab.url,{target:true});
   const h=(await S.all('handoffs')).find(x=>x.targetTabId===sender.tab.id&&x.state==='target_opened');if(!h)return null;
-  C.chatUrl((await api.tabs.get(sender.tab.id)).url,{target:true});
-  await S.set('handoffs',{...h,state:'claimed',targetDocumentId:sender.documentId});
+  C.chatUrl((await api.tabs.get(sender.tab.id)).url,{target:true});await S.set('handoffs',{...h,state:'claimed',targetDocumentId:sender.documentId});
   return{id:h.id,prompt:h.prompt,files:h.batches[0].map(i=>({...h.files[i],index:i})),remainingBatches:h.batches.length-1};
  });claimQueue=operation.catch(()=>{});return operation;
 }
 async function handle(msg,sender){
- await boot;C.check(trusted(sender),'FOREIGN_EXTENSION');
+ await boot;C.check(!bootError,bootError||'STARTUP_FAILED');C.check(trusted(sender),'FOREIGN_EXTENSION');
  if(msg.type==='tl:claimHandoff')return claim(sender);
  if(msg.type==='tl:handoffChunk'){
-  const h=await targetHandoff(msg,sender);C.check(h.state==='claimed'&&h.batches[0].includes(msg.index),'HANDOFF_NOT_READABLE');
-  const f=h.files[msg.index],row=await S.get('files',f.sha256);C.check(row?.blob&&row.blob.size===f.size,'LOCAL_FILE_MISSING');
-  C.check(Number.isSafeInteger(msg.offset)&&msg.offset>=0&&msg.offset<row.blob.size,'INVALID_FILE_OFFSET');
+  const h=await targetHandoff(msg,sender);C.check(h.state==='claimed'&&h.batches[0].includes(msg.index),'HANDOFF_NOT_READABLE');const f=h.files[msg.index],row=await S.get('files',f.sha256);C.check(row?.blob&&row.blob.size===f.size,'LOCAL_FILE_MISSING');C.check(Number.isSafeInteger(msg.offset)&&msg.offset>=0&&msg.offset<row.blob.size,'INVALID_FILE_OFFSET');
   const b=new Uint8Array(await row.blob.slice(msg.offset,msg.offset+262144).arrayBuffer());return{data:C.bytesToBase64(b),total:row.blob.size};
  }
  if(msg.type==='tl:handoffStatus'){
-  const h=await targetHandoff(msg,sender);C.check(h.state==='claimed','HANDOFF_ALREADY_FINISHED');
-  C.check(['draft_prepared','upload_confirmed','upload_unknown','injection_blocked','partial_injection'].includes(msg.state),'INVALID_HANDOFF_STATE');
-  const code=/^[A-Z0-9_]{1,100}$/.test(msg.code||'')?msg.code:null;
-  const updated={...h,state:msg.state,lastError:code,reportedAt:new Date().toISOString()};await S.set('handoffs',updated);return updated;
+  const h=await targetHandoff(msg,sender);C.check(h.state==='claimed','HANDOFF_ALREADY_FINISHED');C.check(['draft_prepared','upload_confirmed','upload_unknown','injection_blocked','partial_injection'].includes(msg.state),'INVALID_HANDOFF_STATE');
+  const code=/^[A-Z0-9_]{1,100}$/.test(msg.code||'')?msg.code:null,updated={...h,state:msg.state,lastError:code,reportedAt:new Date().toISOString()};await S.set('handoffs',updated);return updated;
  }
  if(['tl:sources','tl:start','tl:stop','tl:sessions','tl:prepareHandoff','tl:openHandoff','tl:confirmUpload','tl:focusTarget'].includes(msg.type)){
   workspace(sender);
@@ -127,43 +96,29 @@ async function handle(msg,sender){
   if(msg.type==='tl:prepareHandoff')return prepareHandoff(msg);
   if(msg.type==='tl:openHandoff')return openHandoff(msg.id);
   if(msg.type==='tl:focusTarget'){const h=await S.get('handoffs',msg.id);C.check(h?.targetTabId,'NO_TARGET');await api.tabs.update(h.targetTabId,{active:true});await api.windows.update(h.targetWindowId,{focused:true});return{focused:true};}
-  if(msg.type==='tl:confirmUpload'){
-   const h=await S.get('handoffs',msg.id);C.check(h&&['upload_unknown','upload_confirmed','draft_prepared'].includes(h.state),'HANDOFF_NOT_CONFIRMABLE');
-   C.check(msg.confirmed===true,'USER_CONFIRMATION_REQUIRED');
-   await S.set('handoffs',{...h,state:'user_verified_upload',userVerifiedAt:new Date().toISOString(),note:'User confirmed page attachments; no claim that the model read them or that Send was clicked.'});return{confirmed:true};
-  }
+  if(msg.type==='tl:confirmUpload'){const h=await S.get('handoffs',msg.id);C.check(h&&['upload_unknown','upload_confirmed','draft_prepared'].includes(h.state),'HANDOFF_NOT_CONFIRMABLE');C.check(msg.confirmed===true,'USER_CONFIRMATION_REQUIRED');await S.set('handoffs',{...h,state:'user_verified_upload',userVerifiedAt:new Date().toISOString(),note:'User confirmed page attachments; this is not model-read or sent-message evidence.'});return{confirmed:true};}
  }
  const run=await sourceRun(msg,sender);run.phase=msg.type.slice(3);
  if(msg.type==='tl:snapshot'){
-  C.check(msg.snapshot?.source?.conversationId===run.source.conversationId&&msg.snapshot?.source?.origin===run.source.origin,'SNAPSHOT_SOURCE_MISMATCH');
-  await S.snapshot(run.captureId,msg.snapshot);const c=await S.get('captures',run.captureId);await S.set('captures',{...c,live:run.live});
-  const rows=await S.assets(run.captureId);return{savedKeys:rows.filter(a=>a.state==='saved').map(a=>a.key)};
+  C.check(msg.snapshot?.source?.conversationId===run.source.conversationId&&msg.snapshot?.source?.origin===run.source.origin,'SNAPSHOT_SOURCE_MISMATCH');C.check(JSON.stringify(msg.snapshot).length<=16*1024*1024,'SNAPSHOT_MESSAGE_SIZE_LIMIT');
+  await S.snapshot(run.captureId,msg.snapshot);const c=await S.get('captures',run.captureId);await S.set('captures',{...c,live:run.live});const rows=await S.assets(run.captureId);return{savedKeys:rows.filter(a=>a.state==='saved').map(a=>a.key)};
  }
  if(msg.type==='tl:assetBegin'){await S.beginAsset(run.captureId,msg.key);return{ok:true};}
  if(msg.type==='tl:assetChunk'){await S.chunk(run.captureId,msg.key,msg.seq,C.base64ToBytes(msg.data));return{ok:true};}
  if(msg.type==='tl:assetEnd')return S.finishAsset(run.captureId,msg.key,msg.mime);
  if(msg.type==='tl:assetFail'){await S.failAsset(run.captureId,msg.key,/^[A-Z0-9_]{1,100}$/.test(msg.code||'')?msg.code:'DOWNLOAD_FAILED');return{ok:true};}
  if(msg.type==='tl:external')return externalDownload(run,msg);
- if(msg.type==='tl:finish'){
-  const c=await S.finishCapture(run.captureId);if(run.live){run.phase='watching';await S.set('captures',{...c,live:true});}else runs.delete(run.nonce);await keepRuns();return c;
- }
- if(msg.type==='tl:heartbeat'){return{active:true};}
- if(msg.type==='tl:captureFailed'){
-  const c=await S.get('captures',run.captureId);if(c)await S.set('captures',{...c,state:c.snapshot?'partial':'error',live:false,lastError:/^[A-Z0-9_]{1,100}$/.test(msg.code||'')?msg.code:'CAPTURE_FAILED'});
-  run.controller?.abort();runs.delete(run.nonce);await keepRuns();return{stopped:true};
- }
+ if(msg.type==='tl:finish'){const c=await S.finishCapture(run.captureId);if(run.live){run.phase='watching';await S.set('captures',{...c,live:true});}else runs.delete(run.nonce);await keepRuns();return c;}
+ if(msg.type==='tl:heartbeat')return{active:true};
+ if(msg.type==='tl:captureFailed'){const c=await S.get('captures',run.captureId);if(c)await S.set('captures',{...c,state:c.snapshot?'partial':'error',live:false,lastError:/^[A-Z0-9_]{1,100}$/.test(msg.code||'')?msg.code:'CAPTURE_FAILED'});run.controller?.abort();runs.delete(run.nonce);await keepRuns();return{stopped:true};}
  throw new Error('UNKNOWN_OPERATION');
 }
-api.runtime.onMessage.addListener((msg,sender,respond)=>{
- if(!msg||typeof msg.type!=='string'||!msg.type.startsWith('tl:'))return false;
- handle(msg,sender).then(data=>respond({ok:true,data})).catch(e=>respond({ok:false,code:errorCode(e)}));return true;
-});
+api.runtime.onMessage.addListener((msg,sender,respond)=>{if(!msg||typeof msg.type!=='string'||!msg.type.startsWith('tl:'))return false;handle(msg,sender).then(data=>respond({ok:true,data})).catch(e=>respond({ok:false,code:errorCode(e)}));return true;});
 let workspaceOpening=Promise.resolve();
 api.action.onClicked.addListener(tab=>{
  workspaceOpening=workspaceOpening.catch(()=>{}).then(async()=>{
   const url=api.runtime.getURL('workspace/index.html'),existing=(await api.tabs.query({url:url+'*'}))[0];
-  if(existing){await api.tabs.update(existing.id,{active:true});await api.windows.update(existing.windowId,{focused:true});}
-  else await api.tabs.create({url:url+(tab?.id?'?source='+tab.id:'')});
+  if(existing){await api.tabs.update(existing.id,{active:true});await api.windows.update(existing.windowId,{focused:true});}else await api.tabs.create({url:url+(tab?.id?'?source='+tab.id:'')});
  });
 });
 api.tabs.onUpdated.addListener((tabId,change,tab)=>{
