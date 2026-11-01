@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "ThreadLine Archive",
-  "version": "0.7.1",
-  "version_name": "0.7.1 cloud candidate - real account acceptance pending",
+  "version": "0.7.2",
+  "version_name": "0.7.2 cloud candidate - real account acceptance pending",
   "minimum_chrome_version": "116",
   "description": "Save ChatGPT conversations and actual files locally, verify ZIP archives, and prepare a new chat without sending.",
   "homepage_url": "https://github.com/siskosun/threadline-chatgpt-export",
