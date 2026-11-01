@@ -54,8 +54,8 @@ def conversation(live=False):
     mapping['n3']['message']['content']['parts'].append('[report.pdf](sandbox:/mnt/data/report.pdf)')
     mapping['n5']['message']['content']['parts'].append('[old.pdf](sandbox:/mnt/data/old.pdf)')
     mapping['n7']['message']['content']['parts'].append('[final.txt](sandbox:/mnt/data/final.txt)')
-    mapping['n9']['message']['author']['role']='tool'
-    mapping['n9']['message']['metadata']={'is_user_visible':True,'attachments':[{'id':'file_tool_unknown','name':'tool-output.txt','mime_type':'text/plain'}]}
+    mapping['n4']['message']['author']['role']='tool'
+    mapping['n4']['message']['metadata']={'is_user_visible':True,'attachments':[{'id':'file_tool_unknown','name':'tool-output.txt','mime_type':'text/plain'}]}
     mapping['n6']['message']['metadata']['attachments']=[{'name':'unresolved.pdf'}]
     mapping['n4']['children'].append('alternative')
     mapping['alternative']={'id':'alternative','parent':'n4','children':[],'message':{'id':'m-alt','author':{'role':'assistant'},'content':{'parts':['Alternative conclusion, not the active path.','[branch.pdf](sandbox:/mnt/data/branch.pdf)']}}}
