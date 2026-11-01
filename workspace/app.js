@@ -30,7 +30,7 @@
   const active=await call('tl:sessions'),box=$('running');box.replaceChildren();box.className=active.length?'list':'empty';
   if(!active.length){
    const c=selectedId&&await S.get('captures',selectedId);
-   if(c?.snapshot){$('capture').hidden=true;$('continue').hidden=false;const rows=await S.assets(selectedId);box.textContent='已保存到本地 · '+c.snapshot.messages.length+' 条消息 · '+rows.filter(a=>a.state==='saved').length+' 个文件。';return;}
+   if(c?.snapshot){const first=$('continue').hidden;$('capture').hidden=true;$('continue').hidden=false;const rows=await S.assets(selectedId);box.textContent='已保存到本地 · '+c.snapshot.messages.length+' 条消息 · '+rows.filter(a=>a.state==='saved').length+' 个文件。';if(first)status('对话已保存，可以继续到新聊天。');return;}
    $('capture').hidden=false;$('continue').hidden=true;box.textContent='选择一段对话开始保存。';return;
   }
   $('capture').hidden=true;$('continue').hidden=true;
