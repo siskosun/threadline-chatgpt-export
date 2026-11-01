@@ -63,3 +63,8 @@ Node 回归覆盖 SHA-256、分支图、资产身份、ZIP/ZIP64、损坏拦截�
 上游 [thekester/chatgpt-export](https://github.com/thekester/chatgpt-export) 固定在 v0.6.59 / `13568bf75688de74a5af563b20d5ccd28f4ad532`（MIT）；保留其历史、许可和归档格式经验。新聊天文件注入交互参考 MoveChat v1.2.1；不采用其自动发送路径。详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
 旧研线 UX 的继承内容是低噪音蓝灰风格、清晰主操作、持续错误、窄宽屏适配及分开显示保存/下载/上传/发送状态，不是恢复旧产品的复杂信息架构。开发约束见 [AGENTS.md](AGENTS.md)。
+
+
+## 正式开发计划与验收状态
+
+唯一现行计划与阶段验收矩阵见 [docs/DEVELOPMENT_PLAN.md](docs/DEVELOPMENT_PLAN.md)。每次开发/恢复先核对该计划、当前分支 HEAD、PR 和准确 SHA 的 CI；不得将合成测试等同于真实账号或真人验收。
