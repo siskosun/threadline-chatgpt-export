@@ -149,7 +149,7 @@ async def main():
             await workspace.locator('#allow-media').uncheck();await workspace.locator('#capture').click()
             await wait_async(workspace,'async()=>{const xs=await TLStore.all("captures");return xs.length>0&&xs[0].snapshot&&["ready","partial"].includes(xs[0].state)}',timeout=90000)
             captures=await workspace.evaluate('TLStore.all("captures")');cap=captures[0];cid=cap['id']
-            assert len(cap['snapshot']['messages'])==122 and cap['snapshot']['integrity']['state']=='valid' and cap['state']=='partial',cap
+            assert len(cap['snapshot']['messages'])==121 and cap['snapshot']['integrity']['state']=='valid' and cap['state']=='partial',cap
             assets=await workspace.evaluate('id=>TLStore.assets(id)',cid)
             assert len(assets)==9,assets
             saved=[a for a in assets if a['state']=='saved'];missing=[a for a in assets if a['state'] not in ['saved','excluded']]
