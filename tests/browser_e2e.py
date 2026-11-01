@@ -119,6 +119,16 @@ async def main():
             workspace=await ctx.new_page();await workspace.goto('chrome-extension://'+extension+'/workspace/index.html')
             await workspace.wait_for_function('typeof TLStore!=="undefined"&&typeof TLArchive!=="undefined"')
             await workspace.wait_for_function('document.querySelector("#source").value!==""')
+            # User-perspective acceptance: one obvious action, plain-language hierarchy, no tab maze.
+            assert await workspace.locator('nav').count()==0
+            assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
+            assert await workspace.get_by_role('heading',name='把这段对话，带到新聊天').is_visible()
+            assert await workspace.get_by_role('button',name='保存对话').is_visible()
+            for width in [320,360,1280]:
+                await workspace.set_viewport_size({'width':width,'height':900})
+                assert await workspace.evaluate('document.documentElement.scrollWidth<=window.innerWidth+2'),width
+                await workspace.screenshot(path=str(OUT/f'ux-home-{width}.png'),full_page=True)
+            passed('ux_home_one_primary_action_and_clear_save_task',{'widths':[320,360,1280],'primary_actions':1})
             # Prove the test helper waits for a resolved false-to-true transition.
             await workspace.evaluate('window.fixtureAsyncReady=false;setTimeout(()=>window.fixtureAsyncReady=true,180)')
             await wait_async(workspace,'async()=>window.fixtureAsyncReady')
@@ -218,12 +228,26 @@ async def main():
             assert uh['state']=='upload_unknown',uh
             assert await unknown_target.evaluate('window.sends')==0 and await unknown_target.evaluate('window.uploadEvents')==1
             passed('unrecognized_upload_status_returns_control_without_retry_or_send')
-            await workspace.locator('nav button[data-view="archive"]').click()
+            await workspace.locator('[data-view="archive"]').click()
             await workspace.locator('.archive-button').filter(has_text=cap['snapshot']['title']).first.click()
+            assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
+            assert await workspace.get_by_role('button',name='继续这段对话').is_visible()
             for width in [320,360,1280]:
                 await workspace.set_viewport_size({'width':width,'height':900})
-                await workspace.screenshot(path=str(OUT/f'workspace-{width}.png'),full_page=True)
+                await workspace.screenshot(path=str(OUT/f'ux-archive-{width}.png'),full_page=True)
                 assert await workspace.evaluate('document.documentElement.scrollWidth<=window.innerWidth+2'),width
+            await workspace.get_by_role('button',name='继续这段对话').click()
+            assert await workspace.get_by_role('heading',name='继续这段对话').is_visible()
+            assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
+            await workspace.get_by_role('button',name='准备新对话').click()
+            await wait_async(workspace,'async()=>!document.querySelector("#handoff-result").hidden&&document.querySelector("#open-target")&&!document.querySelector("#open-target").disabled',timeout=30000)
+            assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
+            assert await workspace.get_by_role('button',name='打开新聊天').is_visible()
+            for width in [320,360,1280]:
+                await workspace.set_viewport_size({'width':width,'height':900})
+                assert await workspace.evaluate('document.documentElement.scrollWidth<=window.innerWidth+2'),width
+                await workspace.screenshot(path=str(OUT/f'ux-handoff-{width}.png'),full_page=True)
+            passed('ux_archive_and_handoff_each_have_one_clear_next_action',{'widths':[320,360,1280],'primary_actions':1})
             passed('workspace_320_360_1280_reflow_and_screenshots')
             assert not mode['write_requests'],mode['write_requests']
             passed('all_synthetic_source_requests_are_read_only',{'request_count':mode['request_count']})
