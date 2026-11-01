@@ -151,6 +151,15 @@ async def main():
             assert {a['sha256'] for a in saved}==expected
             assert 'synthetic-do-not-persist-token' not in json.dumps(cap) and 'NOT_FOR_EXPORT_SECRET' not in json.dumps(cap)
             passed('capture_120_messages_all_accessible_branches_real_bytes_and_missing_states',{'saved':5,'unavailable':2})
+            await wait_async(workspace,'async()=>{const r=await chrome.runtime.sendMessage({type:"tl:sessions"});return r.ok&&!r.data.length&&!document.querySelector("#continue").hidden}',timeout=30000)
+            assert await workspace.locator('#capture').is_hidden()
+            assert await workspace.get_by_role('button',name='继续这段对话').is_visible()
+            assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
+            await workspace.get_by_role('button',name='继续这段对话').click()
+            assert await workspace.get_by_role('heading',name='继续这段对话').is_visible()
+            assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
+            await workspace.get_by_role('link',name='研线首页').click()
+            passed('ux_after_save_replaces_save_action_with_continue_action')
             stored=await workspace.evaluate('''async id=>{
               const out=await TLArchive.exportCapture(id),entries=await TLArchive.readZip(out.blob),files=[];
               for(const m of out.manifest.files)if(m.state==='saved')files.push({name:m.name,sha256:await TLCore.hashBlob(await entries.get(m.path).blob())});
