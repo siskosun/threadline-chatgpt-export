@@ -1,30 +1,74 @@
 name: verify
 on:
   push:
-    branches: ["**"]
+    branches: ["threadline/**"]
   pull_request:
     branches: ["main"]
 permissions:
   contents: read
+concurrency:
+  group: threadline-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     name: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Set up Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build browser packages
+      - name: Build deterministic candidate packages
         run: python build.py
-      - name: Run security and regression tests
-        run: node --test tests/a0-security.test.mjs
-      - name: Verify Edge store package
+      - name: Node regression and security checks
+        run: python -c "import glob,subprocess; subprocess.run(['node','--test']+sorted(glob.glob('tests/*.test.mjs')),check=True)"
+      - name: Install pinned synthetic browser test tools
         run: |
-          python -c "import json, zipfile; p='dist/chatgpt-export-edge-addons-0.7.0.zip'; z=zipfile.ZipFile(p); m=json.loads(z.read('manifest.json')); assert '<all_urls>' not in str(m); assert 'https://*.oaiusercontent.com/*' in m['optional_host_permissions']; assert 'src/content.js' in z.namelist(); print('Edge package verified:', p)"
+          python -m pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Synthetic Chromium MV3 acceptance, no real account
+        run: xvfb-run -a python tests/browser_e2e.py
+      - name: Candidate artifacts, not a production release
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadline-candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            dist/threadline-edge-*-candidate.zip
+            dist/threadline-chrome-*-candidate.zip
+            dist/SHA256SUMS
+          retention-days: 30
+      - name: Preserve synthetic verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadline-synthetic-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 30
+  windows-baseline:
+    name: windows-baseline
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and check packages
+        run: python build.py
+      - name: Node regression and security checks
+        run: python -c "import glob,subprocess; subprocess.run(['node','--test']+sorted(glob.glob('tests/*.test.mjs')),check=True)"
