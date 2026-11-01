@@ -29,8 +29,8 @@
     </div>
     <details class="advanced">
       <summary>更多设置</summary>
-      <label class="check"><input type="checkbox" id="allow-media" checked>同时保存对话中的附件</label>
-      <p class="hint">需要允许访问 OpenAI 文件域名。未能取得实际文件的附件会明确标记为缺失。</p>
+      <label class="check"><input type="checkbox" id="allow-media" checked>允许下载 OpenAI 文件域名附件</label>
+      <p class="hint">仅授权访问明确列出的 OpenAI 文件域名，用于下载需要外域请求的附件；不改变上方的文件保存范围。</p>
       <label class="check"><input type="checkbox" id="live">实时缓存这段对话中新生成的文件</label>
       <p id="live-hint" class="hint">只对选中的对话生效。关闭浏览器或停止后不会自动恢复。</p>
       <button id="persist" type="button" class="quiet">请求保留本地存储</button>
