@@ -1,37 +1,66 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>研线 · 本地档案</title><link rel="stylesheet" href="style.css"></head>
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>研线</title><link rel="stylesheet" href="style.css">
+</head>
 <body>
-<header class="top"><div><strong class="brand">研线</strong><span class="sub">本地保存 · 新对话接续</span></div><span class="badge">云端候选版 · 待真实账号验收</span></header>
+<header class="top">
+  <a class="brand" href="#" aria-label="研线首页" data-view="capture">研线</a>
+  <button type="button" class="quiet" data-view="archive">我的档案</button>
+</header>
 <main>
-<nav aria-label="主导航"><button type="button" data-view="capture" aria-current="page">保存对话</button><button type="button" data-view="archive">本地档案</button><button type="button" data-view="handoff">接续到新对话</button></nav>
-<p id="status" role="status" aria-live="polite">正在读取本地档案。</p>
-<section id="capture-view" class="view">
- <h1>保存当前对话</h1><p class="muted">只读取你选择的对话。文件只有取得实际字节并校验后，才会显示为已保存。</p>
- <div class="panel"><label for="source">来源对话</label><div class="row"><select id="source"><option value="">正在获取 ChatGPT 标签页</option></select><button id="refresh-source" type="button">刷新</button></div>
- <label class="check"><input type="checkbox" id="live">同时开启本对话新生成文件的实时缓存</label>
- <p class="hint">缓存只作用于所选对话；关闭标签页或浏览器后停止，需要显式重新开启。已过期且未缓存的远端文件无法凭空恢复。</p>
- <label class="check"><input type="checkbox" id="allow-media" checked>请求访问 OpenAI 文件域名，以下载实际附件</label>
- <div class="actions"><button id="capture" class="primary" type="button">保存所选对话</button></div></div>
- <h2>正在处理</h2><div id="running" class="empty">没有进行中的采集。</div>
- <aside class="note">浏览器本地档案不是独立备份。完成后请下载 ZIP；卸载扩展可能删除扩展存储。实时缓存不能保证拿回缓存开启前已失效的文件。</aside>
-</section>
-<section id="archive-view" class="view" hidden>
- <h1>本地档案</h1><div class="row"><input id="search" type="search" aria-label="搜索本地档案" placeholder="按标题搜索"><button id="refresh" type="button">刷新</button><label class="file-button">恢复档案 ZIP<input id="restore" type="file" accept=".zip,application/zip"></label></div>
- <div class="archive-layout"><aside><div id="archives" class="list" aria-label="档案列表"></div></aside><article id="detail"><p class="empty">选择一个档案，检查消息、分支和文件。</p></article></div>
-</section>
-<section id="handoff-view" class="view" hidden>
- <h1>接续到新对话</h1><p id="handoff-source" class="muted">先在本地档案中选择来源。</p>
- <div class="panel"><label for="instructions">本次目标与当前进度</label><textarea id="instructions" rows="4" maxlength="4000" placeholder="可选：下一步要完成什么、哪些结论已确认、哪些问题仍未解决。历史正文会作为独立文件提供。"></textarea>
- <label for="batch-limit">每批准备文件数（包括历史文件）</label><input id="batch-limit" class="small" type="number" min="2" max="50" value="10"><p class="hint">这是本地分批设置，不代表 ChatGPT 的上传额度。实际额度由网页与账号决定；超出的批次需要你手动补充。</p>
- <div id="selection-summary" class="note">默认不上传全部原始附件。请先在档案详情中勾选本次需要的文件。</div><button id="prepare" type="button" class="primary">生成接续包</button></div>
- <div id="handoff-result" hidden><h2>接续材料</h2><p id="handoff-state" role="status"></p><div id="staging" class="list"></div><p class="hint">可尝试拖拽文件到 ChatGPT。跨窗口拖拽不受支持时，下载文件后手动上传。上传未知不会被当作成功，也不会自动重试。</p>
- <div class="actions"><button id="open-target" type="button" class="primary">在新窗口准备首批</button><button id="focus-target" type="button">查看目标窗口</button><button id="download-handoff" type="button">下载完整接续包</button></div>
- <details><summary>查看短接续提示</summary><pre id="prompt"></pre></details>
- <label class="check"><input id="confirmed" type="checkbox">我已在 ChatGPT 页面核对首批文件确实上传完成</label><button id="confirm-upload" type="button">记录人工核对</button><p class="hint">这只记录首批上传的人工核对，不代表消息已发送、所有批次齐全或模型已读完。发送始终由你完成。</p>
- </div>
-</section>
-<footer><span id="quota"></span><button id="persist" type="button">请求保留本地存储</button><span>无需本地常驻服务，不向第三方发送对话或文件。</span></footer>
+  <p id="status" role="status" aria-live="polite">正在读取本地档案。</p>
+
+  <section id="capture-view" class="view">
+    <div class="intro"><p class="eyebrow">THREADLINE ARCHIVE</p><h1>把这段对话，带到新聊天</h1><p class="muted">保存当前对话和可取得的文件，之后随时继续。</p></div>
+    <div class="task-card">
+      <label for="source">选择要保存的对话</label>
+      <div class="source-row"><select id="source"><option value="">正在查找已打开的 ChatGPT 对话</option></select><button id="refresh-source" type="button" class="quiet">刷新</button></div>
+      <button id="capture" class="primary full" type="button">保存对话</button>
+      <div id="running" class="running empty">尚未开始保存。</div>
+    </div>
+    <details class="advanced">
+      <summary>更多设置</summary>
+      <label class="check"><input type="checkbox" id="allow-media" checked>同时保存对话中的附件</label>
+      <p class="hint">需要允许访问 OpenAI 文件域名。未能取得实际文件的附件会明确标记为缺失。</p>
+      <label class="check"><input type="checkbox" id="live">实时缓存这段对话中新生成的文件</label>
+      <p class="hint">只对选中的对话生效。关闭浏览器或停止后不会自动恢复。</p>
+      <button id="persist" type="button" class="quiet">请求保留本地存储</button>
+    </details>
+  </section>
+
+  <section id="archive-view" class="view" hidden>
+    <div class="view-heading"><button type="button" class="back quiet" data-view="capture">‹ 返回</button><h1>我的档案</h1></div>
+    <div class="row"><input id="search" type="search" aria-label="搜索本地档案" placeholder="搜索对话"><button id="refresh" type="button" class="quiet">刷新</button><label class="file-button quiet">恢复 ZIP<input id="restore" type="file" accept=".zip,application/zip"></label></div>
+    <div class="archive-layout"><aside><div id="archives" class="list" aria-label="本地档案列表"></div></aside><article id="detail"><p class="empty">选择一份档案。</p></article></div>
+  </section>
+
+  <section id="handoff-view" class="view" hidden>
+    <div class="view-heading"><button type="button" class="back quiet" data-view="archive">‹ 返回</button><h1>继续这段对话</h1></div>
+    <p id="handoff-source" class="muted"></p>
+    <div class="task-card">
+      <label for="instructions">这次要继续做什么？（可选）</label>
+      <textarea id="instructions" rows="3" maxlength="4000" placeholder="例如：继续完善方案，重点检查成本和风险。"></textarea>
+      <p id="selection-summary" class="hint">历史记录会自动准备。原始附件可在档案详情中选择。</p>
+      <details class="advanced compact"><summary>批次设置</summary><label for="batch-limit">每批文件数</label><input id="batch-limit" class="small" type="number" min="2" max="50" value="10"></details>
+      <button id="prepare" type="button" class="primary full">准备新对话</button>
+    </div>
+    <div id="handoff-result" hidden>
+      <div class="result-card"><p id="handoff-state" role="status"></p><div id="staging" class="list"></div>
+        <button id="open-target" type="button" class="primary full">打开新聊天</button>
+        <div class="secondary-actions"><button id="focus-target" type="button" class="quiet">查看新聊天</button><button id="download-handoff" type="button" class="quiet">下载全部接续文件</button></div>
+      </div>
+      <details class="advanced"><summary>查看接续提示</summary><pre id="prompt"></pre></details>
+      <details class="advanced"><summary>上传核对</summary>
+        <label class="check"><input id="confirmed" type="checkbox">我已确认首批文件上传完成</label>
+        <button id="confirm-upload" type="button" class="quiet">记录核对结果</button>
+        <p class="hint">发送消息由你完成。上传完成不代表模型已读取全部文件。</p>
+      </details>
+    </div>
+  </section>
+
+  <footer><span id="quota"></span><span>文件保存在当前浏览器中；建议下载 ZIP 备份。</span></footer>
 </main>
 <script src="../src/tl-core.js"></script><script src="../src/tl-store.js"></script><script src="../src/tl-archive.js"></script><script src="app.js"></script>
 </body></html>
