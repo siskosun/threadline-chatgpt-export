@@ -118,7 +118,7 @@ async def main():
             source=await ctx.new_page();await source.goto(SOURCE)
             workspace=await ctx.new_page();await workspace.goto('chrome-extension://'+extension+'/workspace/index.html')
             await workspace.wait_for_function('typeof TLStore!=="undefined"&&typeof TLArchive!=="undefined"')
-            await workspace.wait_for_function('document.querySelector("#source").value!==""')
+            await wait_async(workspace,'()=>document.querySelector("#source").value!==""')
             # User-perspective acceptance: one obvious action, plain-language hierarchy, no tab maze.
             assert await workspace.locator('nav').count()==0
             assert await workspace.locator('.view:not([hidden]) .primary:visible').count()==1
