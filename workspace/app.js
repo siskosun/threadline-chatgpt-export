@@ -64,7 +64,8 @@
   el.append(actions);
   if(snapshot.integrity.issues.length){const d=node('details');d.append(node('summary','分支与内容完整性问题：'+snapshot.integrity.issues.length+' 项'),node('pre',JSON.stringify(snapshot.integrity.issues,null,2)));el.append(d);}
   el.append(node('h3','选择本次接续需要的原始文件'));
-  const fileDetails=node('details');fileDetails.append(node('summary','选择要带到新聊天的原始附件'));\n  const fileList=node('div',null,'list');
+  const fileDetails=node('details');fileDetails.append(node('summary','选择要带到新聊天的原始附件'));
+  const fileList=node('div',null,'list');
   if(!rows.length)fileList.append(node('p','这份可访问快照中没有识别到文件引用。','hint'));
   for(const a of rows){
    const row=node('div',null,'file-row'),check=document.createElement('input');check.type='checkbox';check.disabled=a.state!=='saved';check.checked=selectedKeys.has(a.key);check.setAttribute('aria-label','选择 '+a.name);check.dataset.assetKey=a.key;
