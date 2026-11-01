@@ -17,6 +17,7 @@ ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'test-results';OUT.mkdir(exist_ok=True)
 REPORT={'scope':'synthetic_chromium_mv3_not_real_chatgpt','cases':[],'errors':[]}
 CID='conversation_fixture_20261101';SOURCE='https://chatgpt.com/c/'+CID
+CID_AMBIG='conversation_ambiguous_20261101';SOURCE_AMBIG='https://chatgpt.com/c/'+CID_AMBIG
 
 async def wait_async(page, expression, arg=None, timeout=30000):
     """Poll the RESOLVED result. A Promise object itself must not satisfy a wait."""
@@ -44,7 +45,7 @@ PDF=b'%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n'
 LIVE=b'live-cache-byte-proof-314159'
 FINAL=b'last-generated-file-proof-271828'
 BRANCH=b'alternative-branch-file-proof-161803'
-def conversation(live=False):
+def conversation(live=False,unknown_after=False,conversation_id=CID):
     mapping={'root':{'id':'root','parent':None,'children':['n0'],'message':{'id':'system','author':{'role':'system'},'content':{'parts':['NOT_FOR_EXPORT_SECRET']}}}}
     for i in range(120):
         mapping['n'+str(i)]={'id':'n'+str(i),'parent':'root' if i==0 else 'n'+str(i-1),'children':['n'+str(i+1)] if i<119 else [],'message':{'id':'m'+str(i),'author':{'role':'user' if i%2==0 else 'assistant'},'create_time':1700000000+i,'content':{'parts':['known fact at position '+str(i)+': '+str(i*17)]},'metadata':{}}}
@@ -54,15 +55,16 @@ def conversation(live=False):
     mapping['n3']['message']['content']['parts'].append('[report.pdf](sandbox:/mnt/data/report.pdf)')
     mapping['n5']['message']['content']['parts'].append('[old.pdf](sandbox:/mnt/data/old.pdf)')
     mapping['n7']['message']['content']['parts'].append('[final.txt](sandbox:/mnt/data/final.txt)')
-    mapping['n4']['message']['author']['role']='tool'
-    mapping['n4']['message']['metadata']={'is_user_visible':True,'attachments':[{'id':'file_tool_unknown','name':'tool-output.txt','mime_type':'text/plain'}]}
+    tool_node='n9' if unknown_after else 'n4'
+    mapping[tool_node]['message']['author']['role']='tool'
+    mapping[tool_node]['message']['metadata']={'is_user_visible':True,'attachments':[{'id':'file_tool_unknown','name':'tool-output.txt','mime_type':'text/plain'}]}
     mapping['n6']['message']['metadata']['attachments']=[{'name':'unresolved.pdf'}]
     mapping['n4']['children'].append('alternative')
     mapping['alternative']={'id':'alternative','parent':'n4','children':[],'message':{'id':'m-alt','author':{'role':'assistant'},'content':{'parts':['Alternative conclusion, not the active path.','[branch.pdf](sandbox:/mnt/data/branch.pdf)']}}}
     if live:
         mapping['n119']['children']=['live']
         mapping['live']={'id':'live','parent':'n119','children':[],'message':{'id':'m-live','author':{'role':'assistant'},'content':{'parts':['[live.txt](sandbox:/mnt/data/live.txt)']}}}
-    return {'conversation_id':CID,'title':'合成研究 · 120 条历史','current_node':'live' if live else 'n119','mapping':mapping}
+    return {'conversation_id':conversation_id,'title':'合成研究 · 120 条历史','current_node':'live' if live else 'n119','mapping':mapping}
 
 TARGET_HTML='''<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>
 <textarea id="prompt-textarea" rows="8" style="width:500px;max-width:90vw">__DRAFT__</textarea>
@@ -92,6 +94,9 @@ async def main():
         if p=='/backend-api/conversation/'+CID:
             mode['request_count']+=1
             return await route.fulfill(json=conversation(mode['live']))
+        if p=='/backend-api/conversation/'+CID_AMBIG:
+            mode['request_count']+=1
+            return await route.fulfill(json=conversation(False,True,CID_AMBIG))
         if p.startswith('/backend-api/files/download/'):
             fid=p.rsplit('/',1)[1];mode['file_download_ids'].append(fid)
             if fid in FILES:return await route.fulfill(json={'download_url':'https://chatgpt.com/backend-api/files/content/'+fid})
@@ -242,6 +247,23 @@ async def main():
             assert invalid_scope=='INVALID_LAST_GENERATED_SCOPE',invalid_scope
             passed('last_generated_scope_saves_only_latest_active_branch_assistant_file_and_roundtrips_exclusions',{'saved':[a['name'] for a in scoped_saved],'excluded':len(scoped_excluded),'unresolved':scoped_missing[0]['name'],'download_paths':mode['sandbox_paths'][before_paths:]})
             await scope_workspace.close()
+            ambiguous_source=await ctx.new_page();await ambiguous_source.goto(SOURCE_AMBIG)
+            ambiguous_workspace=await ctx.new_page();await ambiguous_workspace.goto('chrome-extension://'+extension+'/workspace/index.html');await ambiguous_workspace.wait_for_function('typeof TLStore!=="undefined"')
+            await wait_async(ambiguous_workspace,'()=>document.querySelector("#source").value!=="")
+            source_tab=await ambiguous_workspace.evaluate('''async cid=>{const r=await chrome.runtime.sendMessage({type:'tl:sources'});return r.data.find(x=>x.url.endsWith('/'+cid)).id;}''',CID_AMBIG)
+            await ambiguous_workspace.locator('#source').select_option(str(source_tab));await ambiguous_workspace.locator('#asset-scope').select_option('last_generated')
+            await ambiguous_workspace.locator('details.advanced summary').first.click();await ambiguous_workspace.locator('#allow-media').uncheck()
+            ambiguous_paths=len(mode['sandbox_paths']);ambiguous_file_ids=len(mode['file_download_ids']);await ambiguous_workspace.locator('#capture').click()
+            await wait_async(ambiguous_workspace,'async()=>{const xs=await TLStore.all("captures"),c=xs.find(x=>x.snapshot?.source?.conversationId==="'+CID_AMBIG+'"&&x.saveScope==="last_generated");return c?.snapshot&&["ready","partial"].includes(c.state)}',timeout=90000)
+            ambiguous=await ambiguous_workspace.evaluate('''async cid=>{const c=(await TLStore.all('captures')).find(x=>x.snapshot?.source?.conversationId===cid&&x.saveScope==='last_generated'),assets=await TLStore.assets(c.id),out=await TLArchive.exportCapture(c.id),restored=await TLArchive.restore(out.blob),copyAssets=await TLStore.assets(restored);return{capture:c,assets,restored:await TLStore.get('captures',restored),copyAssets};}''',CID_AMBIG)
+            unresolved=[a for a in ambiguous['assets'] if a['state']=='unavailable'];excluded=[a for a in ambiguous['assets'] if a['state']=='excluded'];saved=[a for a in ambiguous['assets'] if a['state']=='saved']
+            assert ambiguous['capture']['state']=='partial' and not saved and len(unresolved)==4 and len(excluded)==6,ambiguous
+            assert {a['name'] for a in unresolved}=={'report.pdf','old.pdf','final.txt','tool-output.txt'},unresolved
+            assert all(a['reason']=='SAVE_SCOPE_SOURCE_UNRESOLVED' for a in unresolved),unresolved
+            assert not mode['sandbox_paths'][ambiguous_paths:] and 'file_tool_unknown' not in mode['file_download_ids'][ambiguous_file_ids:],mode
+            assert ambiguous['restored']['state']=='partial' and len([a for a in ambiguous['copyAssets'] if a['state']=='unavailable'])==4
+            passed('last_generated_scope_does_not_guess_when_later_active_source_is_unresolved',{'saved':len(saved),'unresolved':[a['name'] for a in unresolved],'excluded':len(excluded)})
+            await ambiguous_workspace.close()
             await ctx.close();ctx,extension=await launch(pw,profile)
             source=await ctx.new_page();await source.goto(SOURCE)
             workspace=await ctx.new_page();await workspace.goto('chrome-extension://'+extension+'/workspace/index.html');await workspace.wait_for_function('typeof TLStore!=="undefined"')
