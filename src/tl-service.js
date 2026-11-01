@@ -36,7 +36,7 @@ async function stopCapture(captureId){
  await keepRuns();const c=await S.get('captures',captureId);if(c){for(const a of await S.assets(captureId))if(a.state==='downloading')await S.failAsset(captureId,a.key,'CANCELLED_BY_USER');await S.set('captures',{...c,state:c.state==='capturing'?'cancelled':c.state,live:false});}
 }
 async function externalDownload(run,msg){
- const asset=await S.get('assets',[run.captureId,msg.key]);C.check(asset&&asset.state!=='saved','INVALID_DOWNLOAD_ASSET');const target=C.mediaUrl(msg.url);C.check(await api.permissions.contains({origins:[target.origin+'/*']}),'MEDIA_PERMISSION_REQUIRED');
+ const asset=await S.get('assets',[run.captureId,msg.key]);C.check(asset&&asset.state!=='saved'&&asset.state!=='excluded','INVALID_DOWNLOAD_ASSET');const target=C.mediaUrl(msg.url);C.check(await api.permissions.contains({origins:[target.origin+'/*']}),'MEDIA_PERMISSION_REQUIRED');
  const controller=new AbortController();run.controller=controller;const timer=setTimeout(()=>controller.abort(),60000);
  try{
   const r=await fetch(target.href,{method:'GET',credentials:'omit',referrerPolicy:'no-referrer',redirect:'error',cache:'no-store',signal:controller.signal});C.check(r.ok,'HTTP_'+r.status);C.check(r.body,'NO_DOWNLOAD_BODY');
