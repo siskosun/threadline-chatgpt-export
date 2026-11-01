@@ -111,10 +111,6 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
 .foot-right { display: flex; gap: 8px; }
 .primary { display: inline-flex; align-items: center; gap: 8px; height: 38px; padding: 0 16px; border: 1px solid var(--accent); border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-weight: 650; }
 .primary:not(:disabled):hover { filter: brightness(1.08); }
-.danger-ghost { height: 38px; padding: 0 14px; border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--line)); border-radius: 8px; background: transparent; color: var(--danger); font-weight: 560; }
-.danger-ghost:not(:disabled):hover { background: var(--danger-soft); }
-.danger { height: 38px; padding: 0 16px; border: 1px solid var(--danger); border-radius: 8px; background: var(--danger); color: #fff; font-weight: 650; }
-:host([data-theme="dark"]) .danger { color: #1b1f24; }
 .run { display: flex; flex: 1; align-items: center; gap: 14px; min-width: 0; }
 .foot:has(.run:not([hidden])) .run { flex: 1 1 100%; order: -1; }
 .run-text { flex: 1; min-width: 0; }
@@ -125,16 +121,6 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
 .bar.indeterminate i { width: 35% !important; animation: slide 1.2s ease-in-out infinite; }
 @keyframes slide { from { left: -35%; } to { left: 100%; } }
 
-.confirm { position: absolute; inset: 0; z-index: 2; display: grid; place-items: center; padding: 16px; background: rgba(10,14,20,.45); }
-.confirm-box { width: min(520px, 100%); max-height: 100%; overflow: auto; padding: 22px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); box-shadow: var(--shadow); animation: rise .14s ease-out; }
-.confirm-box h3 { margin: 0 0 8px; font-size: 17px; }
-.warn { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--danger); border-radius: 6px; background: var(--danger-soft); font-size: 13px; }
-.preview { max-height: 132px; margin: 0 0 14px; padding-left: 20px; overflow: auto; color: var(--muted); font-size: 13px; }
-.opt { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0; font-size: 13.5px; cursor: pointer; }
-.opt input { margin-top: 2px; }
-.opt small { color: var(--muted); font-size: 12.5px; }
-.note { margin: 0 0 12px; padding: 10px 12px; border-left: 3px solid var(--ok); border-radius: 6px; background: var(--ok-soft); font-size: 13px; white-space: pre-line; }
-.confirm-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 
 .pill { position: fixed; right: 18px; bottom: 18px; z-index: 2147483000; display: flex; align-items: center; gap: 12px; width: 320px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); box-shadow: var(--shadow); animation: rise .16s ease-out; }
 .pill .run-text { flex: 1; }
@@ -195,7 +181,6 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
         <label class="fmt">Format <select class="format">${Object.entries(FORMAT_LABELS).map(([v, l]) => `<option value="${v}">${l}</option>`).join("")}</select></label>
       </div>
       <div class="foot-right idle-only">
-        <button class="danger-ghost delete" type="button" disabled>Delete…</button>
         <button class="primary export" type="button" disabled>${ICONS.download}<span>Export</span></button>
       </div>
       <div class="run" hidden>
@@ -204,18 +189,7 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
         <button class="danger-ghost cancel" type="button">Cancel</button>
       </div>
     </footer>
-    <div class="confirm" hidden role="alertdialog" aria-modal="true" aria-labelledby="cgx-confirm-title">
-      <div class="confirm-box">
-        <h3 id="cgx-confirm-title">Delete conversations?</h3>
-        <p class="note" hidden></p>
-        <p class="warn"><strong>They are removed from your ChatGPT account, not archived, and cannot be restored.</strong> OpenAI then deletes them permanently within 30 days.</p>
-        <ul class="preview"></ul>
-        <label class="opt backup-row"><input class="backup" type="checkbox" checked><span><strong>Export a backup first</strong> (recommended)<br><small>Exports in the format chosen below the list. Nothing is deleted yet: once the download is done, you check the file and confirm the deletion in a second step.</small></span></label>
-        <label class="opt ack-row"><input class="ack" type="checkbox"><span>I understand that deleted conversations cannot be restored.</span></label>
-        <div class="confirm-actions"><button class="ghost no" type="button">Cancel</button><button class="danger yes" type="button" disabled>Delete</button></div>
-      </div>
-    </div>
-  </section>
+      </section>
 </div>`;
 
   let host = null, root = null, el = {};
@@ -223,8 +197,6 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
   let listComplete = false;
   let actionBusy = false;
   const selected = new Set();
-  const deletedConversationKeys = new Set();
-  const deletedConversationIds = new Set();
   let formats = {}, format = "both";
   let phase = "idle"; // idle | loading | running
   let view = "all";
@@ -273,10 +245,9 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
       selbar: q(".selbar"), all: q(".all"), allLabel: q(".all-label"), selInfo: q(".sel-info"), views: [...root.querySelectorAll(".views button")],
       banner: q(".banner"), bannerMsg: q(".banner .msg"), bannerAction: q(".banner-action"), bannerClose: q(".banner-close"),
       list: q(".list"), rows: q(".rows"), empty: q(".empty"), more: q(".more"),
-      idle: [...root.querySelectorAll(".idle-only")], count: q(".count"), format: q(".format"), del: q(".delete"), exp: q(".export"),
+      idle: [...root.querySelectorAll(".idle-only")], count: q(".count"), format: q(".format"), exp: q(".export"),
       run: q(".run"), runLabel: q(".run .run-label"), runBar: q(".run .bar"), hide: q(".hide"), cancel: q(".cancel"),
-      confirm: q(".confirm"), confirmTitle: q("#cgx-confirm-title"), note: q(".note"), warn: q(".warn"), preview: q(".preview"),
-      backupRow: q(".backup-row"), backup: q(".backup"), ackRow: q(".ack-row"), ack: q(".ack"), no: q(".no"), yes: q(".yes")
+      banner: q(".banner"),
     };
 
     // Keep ChatGPT's global shortcuts (which focus its composer) from
@@ -306,22 +277,10 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
     el.bannerClose.addEventListener("click", () => { el.banner.hidden = true; });
     el.format.addEventListener("change", () => { format = el.format.value; updateFooter(); });
     el.exp.addEventListener("click", () => runExport([...selected], false));
-    el.del.addEventListener("click", () => openConfirm("choose", [...selected]));
     el.cancel.addEventListener("click", () => {
       el.cancel.disabled = true;
       el.cancel.textContent = "Cancelling…";
       globalThis.CGX_core.cancel();
-    });
-    el.no.addEventListener("click", closeConfirm);
-    el.backup.addEventListener("change", updateConfirm);
-    el.ack.addEventListener("change", updateConfirm);
-    el.yes.addEventListener("click", () => {
-      if (!confirmState) return;
-      const { mode, keys } = confirmState;
-      if (mode === "choose" && el.backup.checked) { closeConfirm(); runExport(keys, true); return; }
-      if (!el.ack.checked) return;
-      closeConfirm();
-      runDelete(keys);
     });
 
     el.list.addEventListener("scroll", () => {
@@ -350,7 +309,6 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
   }
 
   function close() {
-    if (!el.confirm.hidden) { closeConfirm(); return; }
     if (!open) return;
     open = false;
     el.backdrop.hidden = true;
@@ -363,7 +321,7 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
     if (!open) return;
     if (event.key === "Escape") { event.preventDefault(); close(); return; }
     if (event.key !== "Tab") return;
-    const scope = el.confirm.hidden ? el.dialog : el.confirm;
+    const scope = el.dialog;
     const focusable = [...scope.querySelectorAll("button, input, select, a[href]")].filter((node) => !node.disabled && !node.closest("[hidden]") && !node.closest("[inert]") && node.offsetParent !== null);
     if (!focusable.length) return;
     const first = focusable[0], last = focusable[focusable.length - 1];
@@ -399,7 +357,7 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
       finish(cancelled ? "Scan cancelled." : "Scan failed. Open to see why.");
       return;
     }
-    items = (result.items || []).filter((item) => !isDeletedItem(item));
+    items = result.items || [];
     listComplete = true;
     const known = new Set(items.map((item) => item.key));
     for (const key of [...selected]) if (!known.has(key)) selected.delete(key);
@@ -457,10 +415,6 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
       while (rendered < Math.min(filtered.length, Math.max(oldRendered, CHUNK))) renderMore();
     }
     paintSelection();
-  }
-
-  function isDeletedItem(item) {
-    return deletedConversationKeys.has(item.key) || (item.conversationId != null && deletedConversationIds.has(String(item.conversationId)));
   }
 
   function renderEmpty(title, text, hint = "") {
@@ -593,11 +547,10 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
       small.textContent = ` (${fmtNumber(items.length)} loaded; ${phase === "loading" ? "scan continues" : "scan incomplete"})`;
       el.count.appendChild(small);
     }
-    el.exp.disabled = !n || phase === "running" || actionBusy || (!listComplete && !items.length);
-    el.del.disabled = !n || phase === "running" || actionBusy || (!listComplete && !items.length);
+    el.exp.disabled = !n || reviewMode || phase === "running" || actionBusy || (!listComplete && !items.length);
     el.format.disabled = actionBusy;
     el.exp.querySelector("span").textContent = n ? `Export ${plural(n, "conversation")}` : "Export";
-    el.exp.title = n ? `Download as ${FORMAT_LABELS[format]}` : "Tick at least one conversation first";
+    el.exp.title = reviewMode ? "This exported list is for review only" : (n ? `Download as ${FORMAT_LABELS[format]}` : "Tick at least one conversation first");
   }
 
   function setPhase(next) {
@@ -653,7 +606,7 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
   function receiveItems(batch) {
     const byKey = new Map(items.map((item) => [item.key, item]));
     for (const item of batch) {
-      if (!item || !item.key || isDeletedItem(item)) continue;
+      if (!item || !item.key) continue;
       const previous = byKey.get(item.key);
       byKey.set(item.key, previous ? {
         ...previous,
@@ -674,53 +627,7 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
     return formats[format] || { format, md: format !== "html", html: format === "html" || format === "both" };
   }
 
-  // Deletion is always a separate, explicit decision:
-  // - "choose": opened from Delete…. With "Export a backup first" ticked it
-  //   only exports; nothing is deleted at that stage.
-  // - "after-export": offered once an export finished. It lists only the
-  //   conversations that were exported successfully, and the user confirms
-  //   after checking the downloaded file. Browsers can block or cancel a
-  //   download without the page knowing, so we never delete automatically.
-  let confirmState = null;
-
-  function openConfirm(mode, keys, exportInfo = "") {
-    const wanted = new Set(keys);
-    const chosen = items.filter((item) => wanted.has(item.key));
-    if (!chosen.length || phase === "running") return;
-    confirmState = { mode, keys: chosen.map((item) => item.key) };
-    el.preview.replaceChildren();
-    for (const item of chosen.slice(0, 8)) { const li = document.createElement("li"); li.textContent = item.title; el.preview.appendChild(li); }
-    if (chosen.length > 8) { const li = document.createElement("li"); li.textContent = `…and ${fmtNumber(chosen.length - 8)} more`; el.preview.appendChild(li); }
-    const shown = new Set(filtered.map((item) => item.key));
-    const hidden = chosen.filter((item) => !shown.has(item.key)).length;
-    if (hidden && mode === "choose") { const li = document.createElement("li"); li.textContent = `Including ${plural(hidden, "conversation")} hidden by your current filters.`; li.style.fontWeight = "600"; el.preview.appendChild(li); }
-    el.note.hidden = mode !== "after-export";
-    el.note.textContent = exportInfo;
-    el.backupRow.hidden = mode !== "choose";
-    el.backup.checked = true;
-    el.ack.checked = false;
-    updateConfirm();
-    el.confirm.hidden = false;
-    el.no.focus();
-  }
-
-  function updateConfirm() {
-    if (!confirmState) return;
-    const n = confirmState.keys.length;
-    const exportFirst = confirmState.mode === "choose" && el.backup.checked;
-    el.confirmTitle.textContent = exportFirst ? `Back up ${plural(n, "conversation")} before deleting` : `Delete ${plural(n, "conversation")} from ChatGPT?`;
-    el.warn.hidden = exportFirst;
-    el.ackRow.hidden = exportFirst;
-    el.yes.className = exportFirst ? "primary yes" : "danger yes";
-    el.yes.disabled = !exportFirst && !el.ack.checked;
-    el.yes.textContent = exportFirst ? `Export ${fmtNumber(n)} as ${FORMAT_LABELS[format]}` : `Delete ${fmtNumber(n)} permanently`;
-  }
-
-  function closeConfirm() {
-    el.confirm.hidden = true;
-    confirmState = null;
-    el.del.focus();
-  }
+  // ---------- Actions ----------
 
   async function runJob(actions) {
     const core = globalThis.CGX_core;
@@ -748,7 +655,7 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
     } else if (phase === "running") setPhase("idle");
     else setPhase(phase);
     if (!result.ok) {
-      if (result.cancelled) showBanner("Cancelled. Nothing else will be exported or deleted.", "");
+      if (result.cancelled) showBanner("Cancelled. No further export actions were taken.", "");
       else if (/load the conversation list again/i.test(result.error || "")) showBanner("The conversation list is out of date.", "error", "Refresh list", () => load(true));
       else showBanner(`Something went wrong: ${result.error || "unknown error"}`, "error");
       if (!core.isListing()) finish(result.cancelled ? "Cancelled." : "Something went wrong. Open to see why.");
@@ -757,59 +664,26 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
     return result;
   }
 
-  async function runExport(keys, thenAskToDelete) {
+  async function runExport(keys) {
     const result = await runJob(keys.map((key) => ({ key, action: "export" })));
     if (!result) return;
     const exp = result.exportResult;
     const lines = [];
     let problem = false;
-    let exportedKeys = [];
     if (exp) {
       const failed = new Set((exp.failedIds || []).map((entry) => JSON.stringify([entry.accountId || "", entry.id || ""])));
-      exportedKeys = keys.filter((key) => !failed.has(key));
+      const exportedKeys = keys.filter((key) => !failed.has(key));
       const target = exp.joplinHistory || exp.joplin ? "Import the downloaded .jex file into Joplin (File › Import › JEX)." : "Check your browser’s downloads.";
-      lines.push(`${plural(exportedKeys.length, "conversation")} exported as ${FORMAT_LABELS[format]}. ${target}`);
-      if (exp.failed) { problem = true; lines.push(`${plural(exp.failed, "conversation")} could not be exported (see the _erreurs.txt file in the archive). They will not be offered for deletion.`); }
-      if (exp.imageFailures) lines.push(`${plural(exp.imageFailures, "image")} could not be downloaded and stayed as links.`);
-      if (exp.fileFailures) lines.push(`${plural(exp.fileFailures, "file")} could not be downloaded.`);
+      lines.push(plural(exportedKeys.length, "conversation") + " exported as " + FORMAT_LABELS[format] + ". " + target);
+      if (exp.failed) { problem = true; lines.push(plural(exp.failed, "conversation") + " could not be exported (see the _erreurs.txt file in the archive)."); }
+      if (exp.imageFailures) lines.push(plural(exp.imageFailures, "image") + " could not be downloaded and stayed as links.");
+      if (exp.fileFailures) lines.push(plural(exp.fileFailures, "file") + " could not be downloaded.");
     } else {
       problem = true;
-      lines.push(`Export did not complete${result.exportError ? `: ${result.exportError}` : "."} Nothing can be deleted.`);
+      lines.push("Export did not complete" + (result.exportError ? ": " + result.exportError : "."));
     }
-    const offerDelete = () => openConfirm("after-export", exportedKeys,
-      `${lines[0]}\nOpen the downloaded file and make sure it is complete before deleting. Only the conversations exported successfully are listed below.`);
-    showBanner(lines.join("\n"), problem ? "error" : "ok", exportedKeys.length ? `Delete these ${fmtNumber(exportedKeys.length)} from ChatGPT…` : "", exportedKeys.length ? offerDelete : null, true);
-    if (thenAskToDelete && exportedKeys.length) {
-      if (open) offerDelete();
-      else if (!globalThis.CGX_core.isListing()) finish("Backup exported. Open to confirm the deletion.");
-      return;
-    }
+    showBanner(lines.join("\n"), problem ? "error" : "ok");
     if (!globalThis.CGX_core.isListing()) finish(problem ? "Export done, with some problems. Open to see details." : "Export done. Open to see the summary.");
-  }
-
-  async function runDelete(keys) {
-    const result = await runJob(keys.map((key) => ({ key, action: "delete" })));
-    if (!result) return;
-    const deletes = result.deleteResults || [];
-    const ok = deletes.filter((entry) => entry.ok);
-    const failed = deletes.filter((entry) => !entry.ok);
-    const lines = ok.length
-      ? [`Deletion requested for ${plural(ok.length, "conversation")}. It may take up to 10 minutes to disappear from your ChatGPT history.`]
-      : ["No conversations were deleted."];
-    if (failed.length) {
-      const names = failed.slice(0, 3).map((entry) => `“${entry.title}”`).join(", ");
-      lines.push(`${plural(failed.length, "conversation")} kept: ${names}${failed.length > 3 ? "…" : ""} (${failed[0].error || "deletion failed"}).`);
-    }
-    const removed = new Set(ok.flatMap((entry) => [entry.key, entry.requestKey].filter(Boolean)));
-    const removedIds = new Set(ok.map((entry) => entry.conversationId).filter((id) => id != null).map(String));
-    for (const key of removed) deletedConversationKeys.add(key);
-    for (const id of removedIds) deletedConversationIds.add(id);
-    for (const item of items) if (removedIds.has(String(item.conversationId))) removed.add(item.key);
-    items = items.filter((item) => !removed.has(item.key) && !removedIds.has(String(item.conversationId)));
-    for (const key of removed) selected.delete(key);
-    applyFilters(true);
-    showBanner(lines.join("\n"), failed.length ? "error" : "ok");
-    if (!globalThis.CGX_core.isListing()) finish(failed.length ? "Deletion requested with some problems. Open to see details." : "Deletion requested. It may take up to 10 minutes to disappear from your ChatGPT history.");
   }
 
   function showBanner(text, tone = "", actionLabel = "", action = null, keepOpen = false) {
@@ -823,21 +697,17 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
   }
 
   // ---------- Review after a history export ----------
-  // "Entire history" runs from the popup, which usually closes before the
-  // export ends. The page then shows a pill; it opens the list of exported
-  // conversations so the user can decide to delete them (same two-step
-  // confirmation as everywhere else). Nothing is deleted automatically.
 
   let reviewMode = false, pillAction = null;
 
   function openReview() {
     pillAction = null;
     el.show.textContent = "Show";
-    const pending = globalThis.CGX_core.pendingDeletion && globalThis.CGX_core.pendingDeletion();
+    const pending = globalThis.CGX_core.pendingReview && globalThis.CGX_core.pendingReview();
     show();
     if (phase !== "idle") return;
     if (!pending || !pending.items.length) {
-      showBanner("Nothing left to review from the last history export.", "");
+      showBanner("No completed history export is available to review.", "");
       load(false);
       return;
     }
@@ -847,49 +717,26 @@ input[type=checkbox] { width: 16px; height: 16px; margin: 0; accent-color: var(-
     selected.clear();
     view = "all";
     applyFilters();
-    const keys = items.map((item) => item.key);
     const label = FORMAT_LABELS[pending.format] || pending.format;
-    const summary = `History export finished: ${plural(keys.length, "conversation")} exported as ${label}.`;
-    const failed = pending.failed ? ` ${plural(pending.failed, "conversation")} failed and are not listed.` : "";
-    const exportInfo = `${summary}${failed}\nOpen the downloaded file and make sure it is complete before deleting. Only successfully exported conversations are listed.`;
-    showBanner(`${summary}${failed}\nThe list shows only these conversations. Nothing is deleted unless you choose to. Click Refresh to see your whole history.`,
-      "ok", `Delete these ${fmtNumber(keys.length)} from ChatGPT…`,
-      () => openConfirm("after-export", keys, exportInfo), true);
+    const summary = "History export finished: " + plural(pending.count || pending.items.length, "conversation") + " exported as " + label + ".";
+    const failed = pending.failed ? " " + plural(pending.failed, "conversation") + " could not be exported." : "";
+    showBanner(summary + failed + "\nOnly successfully exported conversations are listed. This view does not modify your ChatGPT history or projects.", "ok");
   }
 
-  globalThis.CGX_historyExportDone = ({ autoDeleteResults = null, autoDeleteProjectResults = null, remainingCount = 0 } = {}) => {
+  globalThis.CGX_historyExportDone = ({ remainingCount = 0 } = {}) => {
     if (!globalThis.CGX_core) return;
     if (!host || !host.isConnected) build();
     detectTheme();
-    if (Array.isArray(autoDeleteResults)) {
-      const deleted = autoDeleteResults.filter((entry) => entry.ok).length;
-      const failed = autoDeleteResults.length - deleted;
-      const projectDeleted = Array.isArray(autoDeleteProjectResults) ? autoDeleteProjectResults.filter((entry) => entry.ok).length : 0;
-      const projectFailed = Array.isArray(autoDeleteProjectResults) ? autoDeleteProjectResults.length - projectDeleted : 0;
-      const projectSummary = Array.isArray(autoDeleteProjectResults) ? ` Project deletion succeeded for ${plural(projectDeleted, "project")}.${projectFailed ? ` ${plural(projectFailed, "project")} were kept or could not be deleted.` : ""}` : "";
-      const summary = `History export finished. Automatic deletion succeeded for ${plural(deleted, "conversation")}.${failed ? ` ${plural(failed, "conversation")} remain undeleted.` : ""}${projectSummary}`;
-      if (open) showBanner(summary, failed || projectFailed ? "error" : "ok");
-      pillAction = remainingCount ? openReview : null;
-      el.show.textContent = remainingCount ? "Review remaining" : "Show";
-      el.pill.hidden = false;
-      el.pillBar.classList.remove("indeterminate");
-      el.pillBar.firstChild.style.width = "100%";
-      el.pillLabel.textContent = summary;
-      el.pillLabel.title = summary;
-      el.pillLabel.style.whiteSpace = "normal";
-      return;
-    }
     if (open) { openReview(); return; }
     pillAction = openReview;
     el.show.textContent = "Review";
     el.pill.hidden = false;
     el.pillBar.classList.remove("indeterminate");
     el.pillBar.firstChild.style.width = "100%";
-    el.pillLabel.textContent = "History export done. Review it, or delete the exported conversations from ChatGPT.";
+    el.pillLabel.textContent = "History export finished: " + plural(remainingCount, "conversation") + " available for review.";
     el.pillLabel.title = el.pillLabel.textContent;
     el.pillLabel.style.whiteSpace = "normal";
   };
-
   globalThis.CGX_openPicker = (formatOptions = {}, initialFormat = "both", { review = false } = {}) => {
     if (!globalThis.CGX_core) return;
     if (!host || !host.isConnected) build();
