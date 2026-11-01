@@ -210,7 +210,7 @@ async def main():
             assert mode['request_count']==before_requests;mode['live']=False
             passed('opt_in_live_generated_file_caching_and_explicit_stop')
             scope_workspace=await ctx.new_page();await scope_workspace.goto('chrome-extension://'+extension+'/workspace/index.html');await scope_workspace.wait_for_function('typeof TLStore!=="undefined"')
-            await wait_async(scope_workspace,'()=>document.querySelector("#source").value!=="")
+            await wait_async(scope_workspace,'()=>document.querySelector("#source").value!=="")')
             await scope_workspace.locator('#asset-scope').select_option('last_generated')
             assert await scope_workspace.locator('#live').is_disabled()
             rejected=await scope_workspace.evaluate('''async cid=>{const r=await chrome.runtime.sendMessage({type:'tl:sources'}),t=r.data.find(x=>x.url.endsWith('/'+cid));return await chrome.runtime.sendMessage({type:'tl:start',tabId:t.id,live:true,scope:'last_generated'});}''',CID)
