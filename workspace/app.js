@@ -17,7 +17,7 @@
  function invalidate(){if(handoffId&&planFingerprint!==fingerprint()){$('open-target').disabled=true;$('prepare').hidden=false;$('prepare').textContent='重新生成接续包';status('内容已更改，请重新准备。');}}
  async function quota(){const q=await navigator.storage.estimate();$('quota').textContent='本地已用 '+bytes(q.usage||0)+(q.quota?' / 可用配额 '+bytes(q.quota):'');}
  async function sources(){const rows=await call('tl:sources'),old=$('source').value||new URL(location.href).searchParams.get('source');$('source').replaceChildren();if(!rows.length){$('source').append(new Option('未找到已打开的 ChatGPT 对话',''));return;}for(const r of rows)$('source').append(new Option(r.title||r.url,String(r.id)));if(rows.some(r=>String(r.id)===old))$('source').value=old;}
- function updateScopeUI(){const last=$('asset-scope').value==='last_generated',live=$('live');if(last&&live.checked){live.checked=false;status('已关闭实时缓存：仅保存最后生成文件与实时缓存不能同时使用。');}live.disabled=last;$('scope-hint').textContent=last?'只保存当前分支中最近一条助手消息生成的一份文件；用户上传文件和其他分支文件会标记为“按保存范围跳过”。':'尝试保存当前对话中可识别的用户上传文件和助手生成文件。';$('live-hint').textContent=last?'仅保存最后生成文件与实时缓存不兼容。选择“全部文件”后可开启。':'只对选中的对话生效。关闭浏览器或停止后不会自动恢复。';}
+ function updateScopeUI(){const last=$('asset-scope').value==='last_generated',live=$('live');if(last&&live.checked){live.checked=false;status('已关闭实时缓存：仅保存最后生成文件与实时缓存不能同时使用。');}live.disabled=last;$('scope-hint').textContent=last?'对话正文和可访问分支仍完整保存；只下载当前分支中最近一条助手消息生成的一份文件。用户上传文件和其他分支文件会标记为“按保存范围跳过”。':'对话正文和可访问分支均保存；尝试下载可识别的用户上传文件和助手生成文件。';$('live-hint').textContent=last?'仅保存最后生成文件与实时缓存不兼容。选择“全部文件”后可开启。':'只对选中的对话生效。关闭浏览器或停止后不会自动恢复。';}
  async function start(){
   const tabId=Number($('source').value);C.check(tabId>0,'NO_CONVERSATION_ID');
   $('capture').disabled=true;
