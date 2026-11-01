@@ -36,6 +36,21 @@ test('asset schemes and sandbox traversal are distinguished',()=>{
  assert.deepEqual(C.pointer('sediment://file_test'),{scheme:'sediment',fileId:'file_test'});assert.deepEqual(C.pointer('file-service://file-test'),{scheme:'file-service',fileId:'file-test'});assert.deepEqual(C.pointer('sandbox:/mnt/data/result.csv'),{scheme:'sandbox',path:'/mnt/data/result.csv'});
  for(const x of ['sandbox:/etc/passwd','sandbox:/mnt/data/../secret','sandbox:/mnt/data/%2e%2e/secret'])assert.equal(C.pointer(x).scheme,'unsupported');
 });
+test('last-generated scope selects the latest assistant file on the active branch only',()=>{
+ const f=fixture(8);
+ f.mapping.n0.message.metadata={attachments:[{id:'file_user',name:'upload.pdf'}]};
+ f.mapping.n1.message.content.parts.push('[first.csv](sandbox:/mnt/data/first.csv)');
+ f.mapping.n3.message.metadata={attachments:[{id:'file_middle',name:'middle.xlsx'}]};
+ f.mapping.n7.message.content.parts.push('[latest.txt](sandbox:/mnt/data/latest.txt)');
+ f.mapping.alt.message.content.parts.push('[inactive.pdf](sandbox:/mnt/data/inactive.pdf)');
+ const s=C.normalizeConversation(f,source),byName=new Map(s.assets.map(a=>[a.name,a]));
+ assert.equal(byName.get('upload.pdf').origin,'user_uploaded');
+ assert.equal(byName.get('middle.xlsx').origin,'assistant_generated');
+ assert.deepEqual(C.selectAssetKeys(s,'all'),s.assets.map(a=>a.key));
+ assert.deepEqual(C.selectAssetKeys(s,'last_generated'),[byName.get('latest.txt').key]);
+ assert.equal(C.selectAssetKeys(s,'last_generated').includes(byName.get('inactive.pdf').key),false);
+ assert.throws(()=>C.selectAssetKeys(s,'unknown'),/INVALID_SAVE_SCOPE/);
+});
 test('named attachment without a downloadable pointer is explicitly unavailable',()=>{
  const f=fixture(2);f.mapping.n0.message.metadata={attachments:[{name:'report.pdf'}]};const s=C.normalizeConversation(f,source);assert.equal(s.assets.length,1);assert.equal(s.assets[0].state,'unavailable');assert.throws(()=>C.handoff(s,s.assets,[s.assets[0].key]),/SELECTED_FILE_NOT_SAVED/);
 });
@@ -60,6 +75,7 @@ test('long histories become numbered files, not composer text, and 21 originals 
  assert.ok(p.files.filter(f=>f.kind==='history').length>1);assert.ok(p.batches.length>=3);assert.ok(p.batches.every(b=>b.length<=10));assert.ok(p.prompt.length<2000);assert.equal(p.prompt.includes('message 50'),false);assert.ok(p.files.filter(f=>f.kind==='history').map(f=>f.text).join('').includes('message 50'));
 });
 test('missing original files are listed but never represented by empty upload objects',()=>{const s=snapshot(),p=C.handoff(s,[{key:'x',name:'lost.pdf',state:'unavailable',reason:'HTTP_422'}],[]);assert.equal(p.files.some(f=>f.name==='lost.pdf'),false);assert.equal(p.missing.length,1);});
+test('intentionally excluded assets are not reported as missing during handoff',()=>{const s=snapshot(),rows=[{key:'saved',name:'kept.pdf',state:'saved',size:1,sha256:'a'.repeat(64),mime:'application/pdf'},{key:'skip',name:'skip.pdf',state:'excluded',reason:'OUT_OF_SAVE_SCOPE'},{key:'lost',name:'lost.pdf',state:'unavailable',reason:'HTTP_422'}],p=C.handoff(s,rows,['saved']);assert.equal(p.missing.length,1);assert.equal(p.missing[0].name,'lost.pdf');assert.equal(p.excluded.length,1);assert.equal(p.excluded[0].name,'skip.pdf');});
 test('ZIP roundtrip preserves unicode paths and binary payloads',async()=>{
  const data=new Uint8Array([0,1,127,128,255]),zip=await A.buildZip([{name:'manifest.json',content:'{}'},{name:'assets/资料.bin',blob:new Blob([data])}]),entries=await A.readZip(zip);assert.equal(entries.size,2);assert.deepEqual(new Uint8Array(await(await entries.get('assets/资料.bin').blob()).arrayBuffer()),data);
 });
