@@ -22,11 +22,12 @@ async function sendToSource(tabId,message){
 }
 async function startCapture(msg){
  C.check(Number.isInteger(msg.tabId),'INVALID_TAB_ID');C.check(![...runs.values()].some(r=>r.tabId===msg.tabId),'SOURCE_ALREADY_RUNNING');
+ const scope=msg.scope==null?'all':msg.scope;C.check(['all','last_generated'].includes(scope),'INVALID_SAVE_SCOPE');C.check(!(msg.live&&scope==='last_generated'),'LIVE_CACHE_REQUIRES_ALL_SCOPE');
  const tab=await api.tabs.get(msg.tabId),source=C.chatUrl(tab.url),captureId=msg.captureId||C.id(),previous=await S.get('captures',captureId);
- if(previous){const p=previous.snapshot?.source||previous.source;C.check(p?.conversationId===source.conversationId&&p.origin===source.origin,'CAPTURE_SOURCE_CHANGED');}
- else await S.set('captures',{id:captureId,title:C.scrubText(tab.title||'读取对话中'),source,snapshot:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),state:'capturing',live:!!msg.live});
- const nonce=C.id(),run={nonce,tabId:tab.id,source,captureId,live:!!msg.live,phase:'reading',documentId:null,cancelled:false};runs.set(nonce,run);await keepRuns();
- try{const response=await sendToSource(tab.id,{type:'tl:capture',nonce,live:run.live});C.check(response?.ok,'CHATGPT_PAGE_NOT_READY');}
+ if(previous){const p=previous.snapshot?.source||previous.source;C.check(p?.conversationId===source.conversationId&&p.origin===source.origin,'CAPTURE_SOURCE_CHANGED');C.check((previous.saveScope||'all')===scope,'CAPTURE_SCOPE_CHANGED');}
+ else await S.set('captures',{id:captureId,title:C.scrubText(tab.title||'读取对话中'),source,snapshot:null,createdAt:new Date().toISOString(),updatedAt:new Date().toISOString(),state:'capturing',live:!!msg.live,saveScope:scope});
+ const nonce=C.id(),run={nonce,tabId:tab.id,source,captureId,live:!!msg.live,scope,phase:'reading',documentId:null,cancelled:false};runs.set(nonce,run);await keepRuns();
+ try{const response=await sendToSource(tab.id,{type:'tl:capture',nonce,live:run.live,scope:run.scope});C.check(response?.ok,'CHATGPT_PAGE_NOT_READY');}
  catch(e){runs.delete(nonce);await keepRuns();const c=await S.get('captures',captureId);await S.set('captures',{...c,state:'error',live:false,lastError:errorCode(e)});throw new Error('CHATGPT_PAGE_NOT_READY');}
  return{captureId};
 }
@@ -53,11 +54,11 @@ async function prepareHandoff(msg){
   if(f.kind==='asset'){const b=await S.verifiedBlob(f.sha256);files.push({...f,uploadName,size:b.size});}
   else{const blob=new Blob([f.text],{type:f.mime}),info=await S.putBlob(blob);files.push({kind:'history',name:f.name,uploadName,mime:f.mime,...info});}
  }
- const index=['# 接续文件索引','','仅下列文件已准备；网页是否上传成功需另行核对。',...files.map(f=>'- 上传名：'+f.uploadName+'；原名：'+f.name+'；SHA-256：'+f.sha256),...plan.missing.map(f=>'- 未取得文件：'+f.name+'（'+f.reason+'）')].join('\n');
+ const index=['# 接续文件索引','','仅下列文件已准备；网页是否上传成功需另行核对。',...files.map(f=>'- 上传名：'+f.uploadName+'；原名：'+f.name+'；SHA-256：'+f.sha256),...plan.missing.map(f=>'- 未取得文件：'+f.name+'（'+f.reason+'）'),...plan.excluded.map(f=>'- 按保存范围跳过：'+f.name+'（未取得文件字节）')].join('\n');
  const indexInfo=await S.putBlob(new Blob([index],{type:'text/markdown'}));files.unshift({kind:'index',name:'handoff_index.md',uploadName:'handoff_index.md',mime:'text/markdown',...indexInfo});
  const batches=[];for(let i=0;i<files.length;i+=plan.batchLimit)batches.push(files.slice(i,i+plan.batchLimit).map((_,j)=>i+j));
  const prompt=plan.prompt.replace(/准备批次：\d+/,'准备批次：'+batches.length)+'\n\n请先查看 handoff_index.md；同名原文件已分配不同上传名，必须按索引及哈希区分。'+(batches.length>1?' 首批不是全部材料，剩余批次需要用户手动补充。':'');
- const h={id:C.id(),captureId:c.id,createdAt:new Date().toISOString(),state:'prepared',prompt,files,batches,missing:plan.missing};await S.set('handoffs',h);return h;
+ const h={id:C.id(),captureId:c.id,createdAt:new Date().toISOString(),state:'prepared',prompt,files,batches,missing:plan.missing,excluded:plan.excluded};await S.set('handoffs',h);return h;
 }
 async function announce(tabId){const h=(await S.all('handoffs')).find(h=>h.targetTabId===tabId&&h.state==='target_opened');if(h)await api.tabs.sendMessage(tabId,{type:'tl:handoffAvailable'}).catch(()=>{});}
 // A fresh window must not load ChatGPT before its tab is durably bound to this handoff.
