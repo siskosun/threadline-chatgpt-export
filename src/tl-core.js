@@ -160,14 +160,17 @@
   check(scope==='all'||scope==='last_generated','INVALID_SAVE_SCOPE');
   const assets=Array.isArray(snapshot?.assets)?snapshot.assets:[];
   if(scope==='all')return assets.map(a=>a.key);
-  const active=new Map((Array.isArray(snapshot.active)?snapshot.active:[]).map((nodeId,index)=>[nodeId,index]));
-  let latest=-1,latestAssets=[];
+  const nodes=record(snapshot?.nodes)?snapshot.nodes:Object.create(null),active=new Map((Array.isArray(snapshot.active)?snapshot.active:[]).map((nodeId,index)=>[nodeId,index]));
+  let latest=-1,latestAssets=[],unresolvedAfterLatest=false;
   for(const asset of assets){
-   const index=active.get(asset.nodeId),generated=asset.origin==='assistant_generated'||(!asset.origin&&asset.kind==='generated');
-   if(index===undefined||!generated)continue;
-   if(index>latest){latest=index;latestAssets=[asset];}else if(index===latest)latestAssets.push(asset);
+   if(!Object.hasOwn(nodes,asset.nodeId))return [];
+   const index=active.get(asset.nodeId);if(index===undefined)continue;
+   const origin=asset.origin||(asset.kind==='generated'?'assistant_generated':'unknown');
+   if(origin==='unknown'){if(index>=latest)unresolvedAfterLatest=true;continue;}
+   if(origin!=='assistant_generated')continue;
+   if(index>latest){latest=index;latestAssets=[asset];unresolvedAfterLatest=false;}else if(index===latest)latestAssets.push(asset);
   }
-  return latestAssets.length?[latestAssets[latestAssets.length-1].key]:[];
+  return unresolvedAfterLatest?[]:latestAssets.length?[latestAssets[latestAssets.length-1].key]:[];
  }
  function history(snapshot,{allBranches=false}={}){
   const byNode=new Map(snapshot.messages.map(m=>[m.nodeId,m])),list=allBranches?snapshot.messages:snapshot.active.map(n=>byNode.get(n)).filter(Boolean);check(list.length,'NO_SELECTED_BRANCH_MESSAGES');
