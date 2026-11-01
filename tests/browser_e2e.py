@@ -81,7 +81,7 @@ document.getElementById('generic').addEventListener('change',async e=>{
 SOURCE_HTML='<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>Synthetic source conversation</title></head><body><main><p>Selected synthetic research conversation. No account.</p></main></body></html>'
 
 async def main():
-    mode={'live':False,'request_count':0,'write_requests':[],'sandbox_paths':[],'target_mode':'ready','target_draft':False}
+    mode={'live':False,'request_count':0,'write_requests':[],'sandbox_paths':[],'file_download_ids':[],'target_mode':'ready','target_draft':False}
     async def route_handler(route):
         request=route.request;u=urlparse(request.url);p=u.path
         if request.method not in ['GET','HEAD']:
@@ -92,7 +92,7 @@ async def main():
             mode['request_count']+=1
             return await route.fulfill(json=conversation(mode['live']))
         if p.startswith('/backend-api/files/download/'):
-            fid=p.rsplit('/',1)[1]
+            fid=p.rsplit('/',1)[1];mode['file_download_ids'].append(fid)
             if fid in FILES:return await route.fulfill(json={'download_url':'https://chatgpt.com/backend-api/files/content/'+fid})
         if p.startswith('/backend-api/files/content/'):
             fid=p.rsplit('/',1)[1]
@@ -219,7 +219,7 @@ async def main():
             assert rejected['ok'] is False and rejected['code']=='LIVE_CACHE_REQUIRES_ALL_SCOPE',rejected
             await scope_workspace.locator('details.advanced summary').first.click();await scope_workspace.locator('#allow-media').uncheck()
             await scope_workspace.set_viewport_size({'width':1280,'height':900});await scope_workspace.screenshot(path=str(OUT/'ux-home-last-generated-1280.png'),full_page=True)
-            before_paths=len(mode['sandbox_paths']);await scope_workspace.locator('#capture').click()
+            before_paths=len(mode['sandbox_paths']);before_file_ids=len(mode['file_download_ids']);await scope_workspace.locator('#capture').click()
             await wait_async(scope_workspace,'async()=>{const xs=await TLStore.all("captures"),c=xs.find(x=>x.saveScope==="last_generated");return c?.snapshot&&["ready","partial"].includes(c.state)}',timeout=90000)
             scoped=await scope_workspace.evaluate('''async()=>{const c=(await TLStore.all('captures')).find(x=>x.saveScope==='last_generated'),assets=await TLStore.assets(c.id),out=await TLArchive.exportCapture(c.id),restored=await TLArchive.restore(out.blob),copy=await TLStore.get('captures',restored),copyAssets=await TLStore.assets(restored),official=await TLArchive.buildZip([{name:'final.txt',blob:new Blob(['last-generated-file-proof-271828'],{type:'text/plain'})}]),comparison=await TLArchive.compareOfficial(c.id,official);return{capture:c,assets,manifest:out.manifest,restored:copy,restoredAssets:copyAssets,comparison};}''')
             scoped_saved=[a for a in scoped['assets'] if a['state']=='saved'];scoped_excluded=[a for a in scoped['assets'] if a['state']=='excluded'];scoped_missing=[a for a in scoped['assets'] if a['state'] not in ['saved','excluded']]
@@ -227,6 +227,7 @@ async def main():
             assert len(scoped_excluded)==7 and len(scoped_missing)==1,scoped
             assert scoped_missing[0]['name']=='tool-output.txt' and scoped_missing[0]['reason']=='SAVE_SCOPE_SOURCE_UNRESOLVED',scoped
             assert set(mode['sandbox_paths'][before_paths:])=={'/mnt/data/final.txt'},mode['sandbox_paths'][before_paths:]
+            assert 'file_tool_unknown' not in mode['file_download_ids'][before_file_ids:],mode['file_download_ids'][before_file_ids:]
             assert scoped['manifest']['state']=='partial' and scoped['manifest']['saveScope']=='last_generated',scoped['manifest']
             assert scoped['restored']['state']=='partial' and scoped['restored']['saveScope']=='last_generated',scoped['restored']
             assert len([a for a in scoped['restoredAssets'] if a['state']=='excluded'])==7
