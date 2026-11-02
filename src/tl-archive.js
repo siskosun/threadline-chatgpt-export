@@ -119,12 +119,12 @@
   for(const a of snapshot.assets)C.check(keys.has(a.key),'MANIFEST_ASSET_OMITTED');
   C.check(manifest.saveScope==null||['all','last_generated'].includes(manifest.saveScope),'INVALID_ARCHIVE_SAVE_SCOPE');
   if(manifest.saveScope==='last_generated'){
-   const selected=new Set(C.selectAssetKeys(snapshot,'last_generated')),active=new Set(snapshot.active||[]),ambiguous=C.lastGeneratedScopeAmbiguous(snapshot);
+   const selected=new Set(C.selectAssetKeys(snapshot,'last_generated')),active=new Set(snapshot.active||[]),ambiguous=C.lastGeneratedScopeAmbiguous(snapshot),fileByKey=new Map(files.map(a=>[a.key,a]));
    const savedFiles=files.filter(a=>a.state==='saved');
    C.check(savedFiles.length<=1,'INVALID_LAST_GENERATED_SCOPE');
-   if(savedFiles.length)C.check(selected.size===1&&savedFiles[0].key===[...selected][0],'INVALID_LAST_GENERATED_FILE_SELECTION');
+   if(savedFiles.length)C.check(selected.size===1&&savedFiles[0].key===selected.values().next().value,'INVALID_LAST_GENERATED_FILE_SELECTION');
    for(const asset of snapshot.assets){
-    const row=files.find(a=>a.key===asset.key);C.check(row,'MANIFEST_ASSET_OMITTED');
+    const row=fileByKey.get(asset.key);C.check(row,'MANIFEST_ASSET_OMITTED');
     const known=Object.hasOwn(snapshot.nodes,asset.nodeId),isActive=active.has(asset.nodeId),generated=asset.origin==='assistant_generated'||(!asset.origin&&asset.kind==='generated');
     const unresolved=!known?(asset.origin==='unknown'||generated):(isActive&&(asset.origin==='unknown'||(ambiguous&&generated)));
     if(selected.has(asset.key))C.check(row.state!=='excluded','INVALID_LAST_GENERATED_SCOPE_STATE');
