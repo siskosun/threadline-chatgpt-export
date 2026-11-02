@@ -121,6 +121,7 @@
   }
   for(const a of snapshot.assets)C.check(keys.has(a.key),'MANIFEST_ASSET_OMITTED');
   C.check(manifest.saveScope==null||['all','last_generated'].includes(manifest.saveScope),'INVALID_ARCHIVE_SAVE_SCOPE');
+  if((manifest.saveScope||'all')==='all')C.check(files.every(a=>a.state!=='excluded'),'INVALID_ALL_SCOPE_EXCLUSIONS');
   if(manifest.saveScope==='last_generated'){
    const selected=new Set(C.selectAssetKeys(snapshot,'last_generated')),active=new Set(snapshot.active||[]),ambiguous=C.lastGeneratedScopeAmbiguous(snapshot),fileByKey=new Map(files.map(a=>[a.key,a]));
    const savedFiles=files.filter(a=>a.state==='saved');
