@@ -77,7 +77,7 @@
    const session=await json(run,'/api/auth/session');C.check(typeof session.accessToken==='string'&&session.accessToken,'CHATGPT_LOGIN_REQUIRED');const token=session.accessToken,account=session.account?.id||session.activeAccount?.id||session.account_id||null;
    const raw=await json(run,'/backend-api/conversation/'+encodeURIComponent(run.source.conversationId),token,account);sameSource(run);
    const model=C.normalizeConversation(raw,location.href);reconcileVisibleAttachments(model);const selectedKeys=new Set(C.selectAssetKeys(model,run.scope)),scopeAmbiguous=run.scope==='last_generated'&&C.lastGeneratedScopeAmbiguous(model);
-   for(const a of model.assets)if(!selectedKeys.has(a.key)){const active=model.active.includes(a.nodeId),known=!!model.nodes[a.nodeId],generated=a.origin==='assistant_generated'||(!a.origin&&a.kind==='generated');if(!known||(active&&(a.origin==='unknown'||(scopeAmbiguous&&generated)))){a.state='unavailable';a.reason='SAVE_SCOPE_SOURCE_UNRESOLVED';}else{a.state='excluded';a.reason='OUT_OF_SAVE_SCOPE';}}
+   for(const a of model.assets)if(!selectedKeys.has(a.key)){const active=model.active.includes(a.nodeId),known=!!model.nodes[a.nodeId],generated=a.origin==='assistant_generated'||(!a.origin&&a.kind==='generated'),unresolved=!known?(a.origin==='unknown'||generated):(active&&(a.origin==='unknown'||(scopeAmbiguous&&generated)));if(unresolved){a.state='unavailable';a.reason='SAVE_SCOPE_SOURCE_UNRESOLVED';}else{a.state='excluded';a.reason='OUT_OF_SAVE_SCOPE';}}
    const selectedAssets=model.assets.filter(a=>a.state!=='excluded'),skipped=model.assets.length-selectedAssets.length,persisted=C.persistedSnapshot(model);C.check(JSON.stringify(persisted).length<=16*1024*1024,'SNAPSHOT_MESSAGE_SIZE_LIMIT');
    const saved=new Set((await message('tl:snapshot',{snapshot:persisted},run.nonce)).savedKeys);let done=0,missing=0;
    for(const a of model.assets){
@@ -85,7 +85,7 @@
     if(a.reason==='SAVE_SCOPE_SOURCE_UNRESOLVED'){await message('tl:assetFail',{key:a.key,code:'SAVE_SCOPE_SOURCE_UNRESOLVED'},run.nonce);missing++;continue;}
     try{await download(run,a,token,account);done++;}catch(e){const reason=code(e);await message('tl:assetFail',{key:a.key,code:reason},run.nonce);missing++;if(reason==='LOCAL_STORAGE_FULL')throw e;}
    }
-   await message('tl:finish',{},run.nonce);const noGenerated=run.scope==='last_generated'&&selectedAssets.length===0;status(run.live?run:null,'研线：已保存 '+done+' 个文件；'+missing+' 个未取得；'+skipped+' 个按范围跳过。'+(noGenerated?'当前分支未识别到助手生成文件，只保存了对话正文。':run.live?'实时缓存已开启。':'请在本地档案中核对完整性。'));
+   await message('tl:finish',{},run.nonce);const hasGenerated=model.assets.some(a=>a.origin==='assistant_generated'||(!a.origin&&a.kind==='generated')),noGenerated=run.scope==='last_generated'&&!hasGenerated&&!scopeAmbiguous,scopeNotice=scopeAmbiguous?'当前分支存在来源不明或无法映射的文件，不能安全确定最后生成文件；可能的候选文件均标记为未判定。':noGenerated?'当前分支未识别到助手生成文件，只保存了对话正文。':'';status(run.live?run:null,'研线：已保存 '+done+' 个文件；'+missing+' 个未取得；'+skipped+' 个按范围跳过。'+(scopeNotice?' '+scopeNotice:run.live?'实时缓存已开启。':'请在本地档案中核对完整性。'));
    if(!run.live){run.stopped=true;if(active===run)active=null;}
   }catch(e){const reason=code(e);await message('tl:captureFailed',{code:reason},run.nonce).catch(()=>{});stop(run);status(null,'研线：保存中止（'+reason+'）。已保存的字节保留，未确认的结果不自动重试。');}
   finally{run.busy=false;}
