@@ -249,7 +249,7 @@ async def main():
             await scope_workspace.close()
             ambiguous_source=await ctx.new_page();await ambiguous_source.goto(SOURCE_AMBIG)
             ambiguous_workspace=await ctx.new_page();await ambiguous_workspace.goto('chrome-extension://'+extension+'/workspace/index.html');await ambiguous_workspace.wait_for_function('typeof TLStore!=="undefined"')
-            await wait_async(ambiguous_workspace,'()=>document.querySelector("#source").value!=="")
+            await ambiguous_workspace.wait_for_function("document.querySelector('#source').value !== ''")
             source_tab=await ambiguous_workspace.evaluate('''async cid=>{const r=await chrome.runtime.sendMessage({type:'tl:sources'});return r.data.find(x=>x.url.endsWith('/'+cid)).id;}''',CID_AMBIG)
             await ambiguous_workspace.locator('#source').select_option(str(source_tab));await ambiguous_workspace.locator('#asset-scope').select_option('last_generated')
             await ambiguous_workspace.locator('details.advanced summary').first.click();await ambiguous_workspace.locator('#allow-media').uncheck()
