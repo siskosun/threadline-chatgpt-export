@@ -126,7 +126,7 @@
    for(const asset of snapshot.assets){
     const row=files.find(a=>a.key===asset.key);C.check(row,'MANIFEST_ASSET_OMITTED');
     const known=Object.hasOwn(snapshot.nodes,asset.nodeId),isActive=active.has(asset.nodeId),generated=asset.origin==='assistant_generated'||(!asset.origin&&asset.kind==='generated');
-    const unresolved=!known||(isActive&&(asset.origin==='unknown'||(ambiguous&&generated)));
+    const unresolved=!known?(asset.origin==='unknown'||generated):(isActive&&(asset.origin==='unknown'||(ambiguous&&generated)));
     if(selected.has(asset.key))C.check(row.state!=='excluded','INVALID_LAST_GENERATED_SCOPE_STATE');
     else if(unresolved)C.check(row.state==='unavailable'&&row.reason==='SAVE_SCOPE_SOURCE_UNRESOLVED','INVALID_LAST_GENERATED_UNRESOLVED_STATE');
     else C.check(row.state==='excluded'&&row.reason==='OUT_OF_SAVE_SCOPE','INVALID_LAST_GENERATED_EXCLUDED_STATE');
