@@ -160,9 +160,9 @@
   const assets=Array.isArray(snapshot?.assets)?snapshot.assets:[],nodes=record(snapshot?.nodes)?snapshot.nodes:Object.create(null),active=new Map((Array.isArray(snapshot?.active)?snapshot.active:[]).map((nodeId,index)=>[nodeId,index]));
   let latestGenerated=-1,latestUnknown=-1,latestAssets=[],unmapped=false;
   for(const asset of assets){
-   if(!Object.hasOwn(nodes,asset.nodeId)){unmapped=true;continue;}
-   const index=active.get(asset.nodeId);if(index===undefined)continue;
    const origin=asset.origin||(asset.kind==='generated'?'assistant_generated':'unknown');
+   if(!Object.hasOwn(nodes,asset.nodeId)){if(origin==='unknown'||origin==='assistant_generated')unmapped=true;continue;}
+   const index=active.get(asset.nodeId);if(index===undefined)continue;
    if(origin==='unknown'){latestUnknown=Math.max(latestUnknown,index);continue;}
    if(origin!=='assistant_generated')continue;
    if(index>latestGenerated){latestGenerated=index;latestAssets=[asset];}else if(index===latestGenerated)latestAssets.push(asset);
