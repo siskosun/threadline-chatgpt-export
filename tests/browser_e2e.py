@@ -189,6 +189,9 @@ async def main():
             assert stored['blocked'] in ['ARCHIVE_FILE_MISSING','ARCHIVE_FILE_HASH_MISMATCH'],stored
             assert {x['sha256'] for x in stored['files']}==expected
             passed('zip_roundtrip_restore_and_tamper_rejection_before_capture_commit',stored)
+            invalid_all_scope=await workspace.evaluate('''async id=>{const out=await TLArchive.exportCapture(id),entries=await TLArchive.readZip(out.blob),manifest=JSON.parse(await (await entries.get('manifest.json').blob()).text()),target=manifest.files.find(x=>x.name==='data.csv');target.state='excluded';target.reason='OUT_OF_SAVE_SCOPE';const packed=[];for(const e of entries.values())if(e.name!=='manifest.json')packed.push({name:e.name,blob:await e.blob()});packed.push({name:'manifest.json',content:JSON.stringify(manifest)});let blocked='';try{await TLArchive.restore(await TLArchive.buildZip(packed));}catch(e){blocked=e.message;}return blocked;}''',cid)
+            assert invalid_all_scope=='INVALID_ALL_SCOPE_EXCLUSIONS',invalid_all_scope
+            passed('all_files_archive_restore_rejects_forged_exclusions')
             inner=io.BytesIO()
             with zipfile.ZipFile(inner,'w',zipfile.ZIP_DEFLATED) as z:
                 for key,value in FILES.items():z.writestr(key+'.dat',value[2])
