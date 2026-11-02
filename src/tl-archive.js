@@ -90,13 +90,16 @@
   C.chatUrl(raw.source?.url);const mapping=Object.create(null);
   for(const [key,node] of Object.entries(raw.nodes)){C.check(C.record(node),'INVALID_NODE');mapping[key]={parent:node.parent,children:node.children,message:null};}
   const seen=new Set();for(const m of raw.messages){C.check(C.record(m)&&mapping[m.nodeId]&&typeof m.id==='string'&&typeof m.text==='string'&&!seen.has(m.nodeId),'INVALID_MESSAGE');seen.add(m.nodeId);mapping[m.nodeId].message={id:m.id,author:{role:m.role},content:{parts:[m.text]},metadata:{is_user_visible:true},create_time:m.timestamp};}
-  const out=C.normalizeConversation({conversation_id:raw.source.conversationId,title:raw.title,current_node:raw.currentNode,mapping},raw.source.url);
+  const out=C.normalizeConversation({conversation_id:raw.source.conversationId,title:raw.title,current_node:raw.currentNode,mapping},raw.source.url),messageByNode=new Map(out.messages.map(m=>[m.nodeId,m])),assetKeys=new Set();
   out.assets=raw.assets.map(a=>{
-   C.check(C.record(a)&&typeof a.key==='string'&&typeof a.messageId==='string','INVALID_ASSET_METADATA');
+   C.check(C.record(a)&&typeof a.key==='string'&&a.key.length>0&&typeof a.messageId==='string'&&typeof a.nodeId==='string'&&!assetKeys.has(a.key),'INVALID_ASSET_METADATA');
+   assetKeys.add(a.key);
    const ref=C.record(a.ref)?a.ref:{scheme:'unsupported'};
    const safeRef=['file-service','sediment'].includes(ref.scheme)&&/^file[-_][A-Za-z0-9_-]+$/.test(ref.fileId||'')?{scheme:ref.scheme,fileId:ref.fileId}:ref.scheme==='sandbox'?C.pointer('sandbox:'+ref.path):{scheme:'unsupported'};
-   const kind=['upload','generated','image','media'].includes(a.kind)?a.kind:'upload',origin=['assistant_generated','user_uploaded','unknown'].includes(a.origin)?a.origin:(kind==='generated'?'assistant_generated':'unknown');
-   return{key:a.key,messageId:a.messageId,nodeId:a.nodeId,name:C.safeName(a.name),mime:typeof a.mime==='string'?a.mime:'application/octet-stream',kind,origin,authorRole:['assistant','user','tool'].includes(a.authorRole)?a.authorRole:'unknown',ref:safeRef,expectedSize:Number.isSafeInteger(a.expectedSize)&&a.expectedSize>=0?a.expectedSize:null,state:'unavailable',reason:'IMPORTED_METADATA_ONLY'};
+   const message=messageByNode.get(a.nodeId);if(message)C.check(message.id===a.messageId,'ASSET_MESSAGE_NODE_MISMATCH');
+   const authorRole=message?.role||'unknown',origin=authorRole==='assistant'||(authorRole==='tool'&&safeRef.scheme==='sandbox')?'assistant_generated':authorRole==='user'?'user_uploaded':'unknown';
+   const kind=safeRef.scheme==='sandbox'?'generated':['upload','image','media'].includes(a.kind)?a.kind:'upload';
+   return{key:a.key,messageId:a.messageId,nodeId:a.nodeId,name:C.safeName(a.name),mime:typeof a.mime==='string'?a.mime:'application/octet-stream',kind,origin,authorRole,ref:safeRef,expectedSize:Number.isSafeInteger(a.expectedSize)&&a.expectedSize>=0?a.expectedSize:null,state:'unavailable',reason:'IMPORTED_METADATA_ONLY'};
   });
   for(const m of out.messages){m.assetKeys=out.assets.filter(a=>a.nodeId===m.nodeId).map(a=>a.key);}
   return out;
