@@ -97,7 +97,7 @@
    const ref=C.record(a.ref)?a.ref:{scheme:'unsupported'};
    const safeRef=['file-service','sediment'].includes(ref.scheme)&&/^file[-_][A-Za-z0-9_-]+$/.test(ref.fileId||'')?{scheme:ref.scheme,fileId:ref.fileId}:ref.scheme==='sandbox'?C.pointer('sandbox:'+ref.path):{scheme:'unsupported'};
    const message=messageByNode.get(a.nodeId);if(message)C.check(message.id===a.messageId,'ASSET_MESSAGE_NODE_MISMATCH');
-   const authorRole=message?.role||'unknown',origin=authorRole==='assistant'||(authorRole==='tool'&&safeRef.scheme==='sandbox')?'assistant_generated':authorRole==='user'?'user_uploaded':'unknown';
+   const authorRole=message?.role||(['assistant','user','tool'].includes(a.authorRole)?a.authorRole:'unknown'),origin=authorRole==='assistant'||(authorRole==='tool'&&safeRef.scheme==='sandbox')?'assistant_generated':authorRole==='user'?'user_uploaded':'unknown';
    const kind=safeRef.scheme==='sandbox'?'generated':['upload','image','media'].includes(a.kind)?a.kind:'upload';
    return{key:a.key,messageId:a.messageId,nodeId:a.nodeId,name:C.safeName(a.name),mime:typeof a.mime==='string'?a.mime:'application/octet-stream',kind,origin,authorRole,ref:safeRef,expectedSize:Number.isSafeInteger(a.expectedSize)&&a.expectedSize>=0?a.expectedSize:null,state:'unavailable',reason:'IMPORTED_METADATA_ONLY'};
   });
