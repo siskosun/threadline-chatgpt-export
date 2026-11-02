@@ -262,6 +262,11 @@ async def main():
             assert all(a['reason']=='SAVE_SCOPE_SOURCE_UNRESOLVED' for a in unresolved),unresolved
             assert not mode['sandbox_paths'][ambiguous_paths:] and 'file_tool_unknown' not in mode['file_download_ids'][ambiguous_file_ids:],mode
             assert ambiguous['restored']['state']=='partial' and len([a for a in ambiguous['copyAssets'] if a['state']=='unavailable'])==4
+            tampered_state=await ambiguous_workspace.evaluate('''async id=>{const out=await TLArchive.exportCapture(id),entries=await TLArchive.readZip(out.blob),manifest=JSON.parse(await (await entries.get('manifest.json').blob()).text()),target=manifest.files.find(x=>x.name==='tool-output.txt');target.state='excluded';target.reason='OUT_OF_SAVE_SCOPE';const packed=[];for(const e of entries.values())if(e.name!=='manifest.json')packed.push({name:e.name,blob:await e.blob()});packed.push({name:'manifest.json',content:JSON.stringify(manifest)});let blocked='';try{await TLArchive.restore(await TLArchive.buildZip(packed));}catch(e){blocked=e.message;}return blocked;}''',ambiguous['capture']['id'])
+            assert tampered_state=='INVALID_LAST_GENERATED_UNRESOLVED_STATE',tampered_state
+            tampered_extra=await ambiguous_workspace.evaluate('''async id=>{const out=await TLArchive.exportCapture(id),entries=await TLArchive.readZip(out.blob),manifest=JSON.parse(await (await entries.get('manifest.json').blob()).text());manifest.files.push({key:'ghost',name:'ghost.txt',state:'unavailable',reason:'IMPORTED_FILE_UNAVAILABLE'});const packed=[];for(const e of entries.values())if(e.name!=='manifest.json')packed.push({name:e.name,blob:await e.blob()});packed.push({name:'manifest.json',content:JSON.stringify(manifest)});let blocked='';try{await TLArchive.restore(await TLArchive.buildZip(packed));}catch(e){blocked=e.message;}return blocked;}''',ambiguous['capture']['id'])
+            assert tampered_extra=='UNKNOWN_MANIFEST_ASSET',tampered_extra
+            passed('scoped_archive_restore_rejects_tampered_unresolved_states_and_unknown_assets')
             passed('last_generated_scope_does_not_guess_when_later_active_source_is_unresolved',{'saved':len(saved),'unresolved':[a['name'] for a in unresolved],'excluded':len(excluded)})
             await ambiguous_workspace.close()
             await ctx.close();ctx,extension=await launch(pw,profile)
