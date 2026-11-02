@@ -108,7 +108,7 @@
   const snapshot=validatedSnapshot(JSON.parse(await rawBlob.text())),byKey=new Map(snapshot.assets.map(a=>[a.key,a])),files=[],blobs=new Map(),keys=new Set();
   for(const m of manifest.files){
    C.check(C.record(m)&&typeof m.key==='string'&&!keys.has(m.key),'INVALID_MANIFEST_ASSET');keys.add(m.key);
-   const meta=byKey.get(m.key)||{key:m.key,messageId:String(m.messageId||''),nodeId:String(m.nodeId||''),name:C.safeName(m.name),mime:String(m.mime||'application/octet-stream'),kind:'upload',origin:'unknown',authorRole:'unknown',ref:{scheme:'unsupported'}};
+   const meta=byKey.get(m.key);C.check(meta,'UNKNOWN_MANIFEST_ASSET');
    if(m.state==='saved'){
     C.check(/^[a-f0-9]{64}$/.test(m.sha256||'')&&m.path==='assets/'+m.sha256+'.bin'&&m.size>0,'INVALID_SAVED_FILE');
     const e=entries.get(m.path);C.check(e&&e.size===m.size,'ARCHIVE_FILE_MISSING');const b=await e.blob();C.check(await C.hashBlob(b)===m.sha256,'ARCHIVE_FILE_HASH_MISMATCH');
@@ -119,10 +119,18 @@
   for(const a of snapshot.assets)C.check(keys.has(a.key),'MANIFEST_ASSET_OMITTED');
   C.check(manifest.saveScope==null||['all','last_generated'].includes(manifest.saveScope),'INVALID_ARCHIVE_SAVE_SCOPE');
   if(manifest.saveScope==='last_generated'){
-   const selected=C.selectAssetKeys(snapshot,'last_generated'),savedFiles=files.filter(a=>a.state==='saved');
+   const selected=new Set(C.selectAssetKeys(snapshot,'last_generated')),active=new Set(snapshot.active||[]),ambiguous=C.lastGeneratedScopeAmbiguous(snapshot);
+   const savedFiles=files.filter(a=>a.state==='saved');
    C.check(savedFiles.length<=1,'INVALID_LAST_GENERATED_SCOPE');
-   if(savedFiles.length)C.check(selected.length===1&&savedFiles[0].key===selected[0],'INVALID_LAST_GENERATED_FILE_SELECTION');
-   if(selected.length){const row=files.find(a=>a.key===selected[0]);C.check(row&&row.state!=='excluded','INVALID_LAST_GENERATED_SCOPE_STATE');}
+   if(savedFiles.length)C.check(selected.size===1&&savedFiles[0].key===[...selected][0],'INVALID_LAST_GENERATED_FILE_SELECTION');
+   for(const asset of snapshot.assets){
+    const row=files.find(a=>a.key===asset.key);C.check(row,'MANIFEST_ASSET_OMITTED');
+    const known=Object.hasOwn(snapshot.nodes,asset.nodeId),isActive=active.has(asset.nodeId),generated=asset.origin==='assistant_generated'||(!asset.origin&&asset.kind==='generated');
+    const unresolved=!known||(isActive&&(asset.origin==='unknown'||(ambiguous&&generated)));
+    if(selected.has(asset.key))C.check(row.state!=='excluded','INVALID_LAST_GENERATED_SCOPE_STATE');
+    else if(unresolved)C.check(row.state==='unavailable'&&row.reason==='SAVE_SCOPE_SOURCE_UNRESOLVED','INVALID_LAST_GENERATED_UNRESOLVED_STATE');
+    else C.check(row.state==='excluded'&&row.reason==='OUT_OF_SAVE_SCOPE','INVALID_LAST_GENERATED_EXCLUDED_STATE');
+   }
   }
   const state=manifest.state==='ready'&&snapshot.integrity.state==='valid'&&files.every(a=>a.state==='saved'||a.state==='excluded')?'ready':'partial';
   return S.importCapture(snapshot,files,blobs,state,manifest.saveScope||'all');
