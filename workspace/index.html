@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>研线</title><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#" aria-label="研线首页" data-view="capture">研线</a>
+  <button type="button" class="quiet" data-view="archive">我的档案</button>
+</header>
+<main>
+  <p id="status" role="status" aria-live="polite">正在读取本地档案。</p>
+
+  <section id="capture-view" class="view">
+    <div class="intro"><h1>把这段对话，带到新聊天</h1><p class="muted">保存当前对话和可取得的文件，之后随时继续。</p></div>
+    <div class="task-card">
+      <label for="source">选择要保存的对话</label>
+      <div class="source-row"><select id="source"><option value="">正在查找已打开的 ChatGPT 对话</option></select><button id="refresh-source" type="button" class="quiet">刷新</button></div>
+      <label for="asset-scope">文件保存范围</label>
+      <select id="asset-scope">
+        <option value="all">保存对话中的所有文件</option>
+        <option value="last_generated">仅保存最后生成的文件</option>
+      </select>
+      <p id="scope-hint" class="hint">尝试保存当前对话中可识别的用户上传文件和助手生成文件。</p>
+      <button id="capture" class="primary full" type="button">保存对话</button>
+      <button id="continue" class="primary full" type="button" hidden>继续这段对话</button>
+      <div id="running" class="running empty">尚未开始保存。</div>
+    </div>
+    <details class="advanced">
+      <summary>更多设置</summary>
+      <label class="check"><input type="checkbox" id="allow-media" checked>允许下载 OpenAI 文件域名附件</label>
+      <p class="hint">仅授权访问明确列出的 OpenAI 文件域名，用于下载需要外域请求的附件；不改变上方的文件保存范围。</p>
+      <label class="check"><input type="checkbox" id="live">实时缓存这段对话中新生成的文件</label>
+      <p id="live-hint" class="hint">只对选中的对话生效。关闭浏览器或停止后不会自动恢复。</p>
+      <button id="persist" type="button" class="quiet">请求保留本地存储</button>
+      <p id="quota" class="hint"></p>
+    </details>
+  </section>
+
+  <section id="archive-view" class="view" hidden>
+    <div class="view-heading"><button type="button" class="back quiet" data-view="capture">‹ 返回</button><h1>我的档案</h1></div>
+    <div class="row"><input id="search" type="search" aria-label="搜索本地档案" placeholder="搜索对话"><button id="refresh" type="button" class="quiet">刷新</button><label class="file-button quiet">恢复 ZIP<input id="restore" type="file" accept=".zip,application/zip"></label></div>
+    <div class="archive-layout"><aside><div id="archives" class="list" aria-label="本地档案列表"></div></aside><article id="detail"><p class="empty">选择一份档案。</p></article></div>
+  </section>
+
+  <section id="handoff-view" class="view" hidden>
+    <div class="view-heading"><button type="button" class="back quiet" data-view="archive">‹ 返回</button><h1>继续这段对话</h1></div>
+    <p id="handoff-source" class="muted"></p>
+    <div class="task-card">
+      <label for="instructions">这次要继续做什么？（可选）</label>
+      <textarea id="instructions" rows="3" maxlength="4000" placeholder="例如：继续完善方案，重点检查成本和风险。"></textarea>
+      <p id="selection-summary" class="hint">历史记录会自动准备。原始附件可在档案详情中选择。</p>
+      <details class="advanced compact"><summary>批次设置</summary><label for="batch-limit">每批文件数</label><input id="batch-limit" class="small" type="number" min="2" max="50" value="10"></details>
+      <button id="prepare" type="button" class="primary full">准备新对话</button>
+    </div>
+    <div id="handoff-result" hidden>
+      <div class="result-card"><p id="handoff-state" role="status"></p><details id="staging-details"><summary>查看待上传文件</summary><div id="staging" class="list"></div></details>
+        <button id="open-target" type="button" class="primary full">打开新聊天</button>
+        <div class="secondary-actions"><button id="focus-target" type="button" class="quiet">查看新聊天</button><button id="download-handoff" type="button" class="quiet">下载全部接续文件</button></div>
+      </div>
+      <details class="advanced"><summary>查看接续提示</summary><pre id="prompt"></pre></details>
+      <details class="advanced"><summary>上传核对</summary>
+        <label class="check"><input id="confirmed" type="checkbox">我已确认首批文件上传完成</label>
+        <button id="confirm-upload" type="button" class="quiet">记录核对结果</button>
+        <p class="hint">发送消息由你完成。上传完成不代表模型已读取全部文件。</p>
+      </details>
+    </div>
+  </section>
+
+  <footer><span>文件保存在当前浏览器中；建议下载 ZIP 备份。</span></footer>
+</main>
+<script src="../src/tl-core.js"></script><script src="../src/tl-store.js"></script><script src="../src/tl-archive.js"></script><script src="app.js"></script>
+</body></html>

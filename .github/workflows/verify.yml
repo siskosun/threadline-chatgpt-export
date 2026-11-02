@@ -1,0 +1,79 @@
+name: verify
+on:
+  push:
+    branches: ["threadline/**"]
+  pull_request:
+    branches: ["main"]
+permissions:
+  contents: read
+concurrency:
+  # Independent commits must not wait on a stale cancelled Windows job.
+  # Push/PR events for the SAME source commit share a group; no test is skipped.
+  group: threadline-${{ github.head_ref || github.ref_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    name: verify
+    # Match the pinned Playwright dependency baseline, not a moving OS alias.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build deterministic candidate packages
+        run: python build.py
+      - name: Node regression and security checks
+        run: python -c "import glob,subprocess; subprocess.run(['node','--test']+sorted(glob.glob('tests/*.test.mjs')),check=True)"
+      - name: Install pinned synthetic browser test tools
+        run: |
+          python -m pip install playwright==1.56.0
+          python -m playwright install --with-deps chromium
+      - name: Synthetic Chromium MV3 acceptance, no real account
+        run: xvfb-run -a python tests/browser_e2e.py
+      - name: Actual IndexedDB shared-file and handoff safety checks
+        run: xvfb-run -a python tests/storage_edges.py
+      - name: Candidate artifacts, not a production release
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadline-candidate-${{ github.event.pull_request.head.sha || github.sha }}
+          path: |
+            dist/threadline-edge-*-candidate.zip
+            dist/threadline-chrome-*-candidate.zip
+            dist/SHA256SUMS
+          retention-days: 30
+      - name: Preserve synthetic verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: threadline-synthetic-evidence-${{ github.event.pull_request.head.sha || github.sha }}
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 30
+  windows-baseline:
+    name: windows-baseline
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build and check packages
+        run: python build.py
+      - name: Node regression and security checks
+        run: python -c "import glob,subprocess; subprocess.run(['node','--test']+sorted(glob.glob('tests/*.test.mjs')),check=True)"
